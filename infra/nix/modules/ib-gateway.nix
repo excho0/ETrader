@@ -4,7 +4,7 @@ let
 in
 {
   options.services.etrader.ibGateway = {
-    enable = lib.mkEnableOption "ETrader IB Gateway container";
+    enable = lib.mkEnableOption "ETrader IB Gateway container for the AI-agent trading stack";
 
     containerName = lib.mkOption {
       type = lib.types.str;
@@ -39,7 +39,7 @@ in
     environmentFiles = lib.mkOption {
       type = lib.types.listOf lib.types.path;
       default = [ ];
-      example = [ /run/secrets/ib-gateway.env ];
+      example = [ /absolute/path/to/ib-gateway.env ];
       description = "Optional environment files passed to the container runtime.";
     };
 
