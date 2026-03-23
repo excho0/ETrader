@@ -1,5 +1,5 @@
 {
-  description = "ETrader IB Gateway NixOS module";
+  description = "ETrader infrastructure for AI-agent algo trading with OpenClaw and IB Gateway";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
@@ -8,7 +8,7 @@
       nixosModules = {
         ib-gateway = import ./infra/nix/modules/ib-gateway.nix;
 
-        # Aggregate module: import this to enable access to all ETrader modules.
+        # Aggregate module: import this to enable access to all ETrader infrastructure modules.
         etrader = { ... }: {
           imports = [
             self.nixosModules.ib-gateway
