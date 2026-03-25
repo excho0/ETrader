@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     auth_enabled: bool = True
     auth_agent_token: str | None = None
     auth_execute_token: str | None = None
+    mcp_http_localhost_auth_bypass: bool = True
+    mcp_http_localhost_bypass_scope: Literal["agent", "execute"] = "execute"
     mcp_stdio_auth_bypass: bool = True
     mcp_http_host: str = "127.0.0.1"
     mcp_http_port: int = 8041
