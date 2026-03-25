@@ -25,6 +25,12 @@ __pycache__
 .mypy_cache
 .venv
 venv
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+**/.venv
+**/venv
 
 apps/openclaw/node_modules
 apps/openclaw/.turbo

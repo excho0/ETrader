@@ -50,10 +50,18 @@ class IBGatewayClient:
         elif self._settings.ib_target_mode == "live":
             modes = ["live"]
         else:
-            fallback_mode: Literal["paper", "live"] = (
-                "live" if self._settings.ib_preferred_mode == "paper" else "paper"
-            )
-            modes = [self._settings.ib_preferred_mode, fallback_mode]
+            # In auto mode, once we have established a session against a specific
+            # side, reconnect should prefer that same side rather than probing the
+            # opposite mode on every disconnect. This keeps reconnect behavior
+            # aligned with the active deployment and avoids noisy dual-port errors
+            # after a paper-only gateway goes down.
+            if self._connected_mode in {"paper", "live"}:
+                modes = [self._connected_mode]
+            else:
+                fallback_mode: Literal["paper", "live"] = (
+                    "live" if self._settings.ib_preferred_mode == "paper" else "paper"
+                )
+                modes = [self._settings.ib_preferred_mode, fallback_mode]
 
         return [
             {
@@ -90,7 +98,9 @@ class IBGatewayClient:
                 return
 
             errors: list[str] = []
-            for candidate in self.connection_candidates():
+            candidates = self.connection_candidates()
+            primary_mode = candidates[0]["mode"] if candidates else None
+            for candidate in candidates:
                 try:
                     await self.probe_socket(
                         host=candidate["host"],
@@ -131,6 +141,17 @@ class IBGatewayClient:
                         self._ib.disconnect()
                     except Exception:
                         pass
+                    # In auto mode, a timeout on the primary candidate usually
+                    # means the selected gateway side is still booting and not
+                    # API-ready yet. Falling through to the opposite side just
+                    # adds noise and delays the next retry.
+                    if (
+                        self._settings.ib_target_mode == "auto"
+                        and primary_mode is not None
+                        and candidate["mode"] == primary_mode
+                        and isinstance(exc, TimeoutError)
+                    ):
+                        break
 
             raise ConnectionError(" ; ".join(errors))
 
