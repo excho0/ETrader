@@ -5,6 +5,7 @@ import anyio
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.core.config import get_settings
 from app.core.security import (
@@ -78,10 +79,41 @@ def build_mcp_server(*, secure_http: bool) -> FastMCP:
     return mcp
 
 
+class LocalhostMCPAuthBypassApp:
+    def __init__(self, app: ASGIApp) -> None:
+        self._app = app
+        self.state = getattr(app, "state", None)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or not settings.mcp_http_localhost_auth_bypass:
+            await self._app(scope, receive, send)
+            return
+
+        client = scope.get("client")
+        client_host = client[0] if client else None
+        if client_host not in {"127.0.0.1", "::1"}:
+            await self._app(scope, receive, send)
+            return
+
+        headers = list(scope.get("headers", []))
+        has_auth = any(name.lower() == b"authorization" for name, _ in headers)
+        if not has_auth:
+            token = (
+                settings.auth_execute_token
+                if settings.mcp_http_localhost_bypass_scope == "execute"
+                else settings.auth_agent_token
+            ) or settings.auth_agent_token or settings.auth_execute_token
+            if token:
+                headers.append((b"authorization", f"Bearer {token}".encode("utf-8")))
+                scope = {**scope, "headers": headers}
+
+        await self._app(scope, receive, send)
+
+
 def build_secure_http_mcp_app():
     app = mcp.streamable_http_app()
     app.state.mcp_session_manager = mcp.session_manager
-    return app
+    return LocalhostMCPAuthBypassApp(app)
 
 
 def set_active_trading_service(service: TradingService | None) -> None:
