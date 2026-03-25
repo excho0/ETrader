@@ -13,11 +13,10 @@ RUN apt-get update && \
 
 RUN pip install --no-cache-dir uv
 
-COPY apps/ib-bridge/pyproject.toml apps/ib-bridge/uv.lock ./
-RUN uv sync --frozen --no-dev
-
 COPY apps/ib-bridge /app
+RUN rm -rf /app/.venv /app/.pytest_cache /app/.ruff_cache /app/.mypy_cache && \
+    uv sync --frozen --no-dev
 
 EXPOSE 8040 8041
 
-CMD ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8040"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8040"]

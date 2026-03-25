@@ -17,6 +17,9 @@ services:
         required: false
     volumes:
       - ${IB_GATEWAY_DATA_DIR:-./data/ib-gateway/tws_settings}:${IB_GATEWAY_SETTINGS_PATH:-/home/ibgateway/tws_settings}
+    networks:
+      etrader_net:
+        ipv4_address: 172.30.0.2
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/4002'"]
       interval: 30s
@@ -46,6 +49,9 @@ services:
       MCP_HTTP_PORT: 8040
     volumes:
       - ${IB_BRIDGE_DATA_DIR:-./data/ib-bridge}:/data/ib-bridge
+    networks:
+      etrader_net:
+        ipv4_address: 172.30.0.10
 
   openclaw-gateway:
     profiles: ["openclaw"]
@@ -73,6 +79,9 @@ services:
     ports:
       - "${OPENCLAW_GATEWAY_PORT:-18789}:18789"
       - "${OPENCLAW_BRIDGE_PORT:-18790}:18790"
+    networks:
+      etrader_net:
+        ipv4_address: 172.30.0.20
     init: true
     command:
       [
@@ -84,3 +93,11 @@ services:
         "--port",
         "18789"
       ]
+
+networks:
+  etrader_net:
+    name: etrader_net
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
