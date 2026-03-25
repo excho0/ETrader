@@ -1,0 +1,22 @@
+{
+  "name": "etrader-monorepo",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.16.1",
+  "scripts": {
+    "compose:up": "docker compose up -d --build",
+    "compose:down": "docker compose down --remove-orphans",
+    "compose:logs": "docker compose logs -f",
+    "compose:ps": "docker compose ps",
+    "ib-bridge:setup": "uv --directory apps/ib-bridge sync",
+    "ib-bridge:setup:prod": "uv --directory apps/ib-bridge sync --no-dev",
+    "ib-bridge:build": "uv --directory apps/ib-bridge sync --no-dev",
+    "ib-bridge:dev": "uv --directory apps/ib-bridge run uvicorn app.main:app --reload --host 0.0.0.0 --port 8040",
+    "ib-bridge:start": "uv --directory apps/ib-bridge run uvicorn app.main:app --host 0.0.0.0 --port 8040",
+    "ib-bridge:mcp": "uv --directory apps/ib-bridge run python -m app.mcp_server",
+    "ib-bridge:mcp:smoke": "uv --directory apps/ib-bridge run python scripts/mcp_smoke.py",
+    "ib-bridge:test": "uv --directory apps/ib-bridge run pytest",
+    "ib-bridge:lint": "uv --directory apps/ib-bridge run ruff check .",
+    "ib-bridge:format": "uv --directory apps/ib-bridge run ruff format ."
+  }
+}
