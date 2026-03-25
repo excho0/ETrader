@@ -46,10 +46,25 @@ in
     environment = lib.mkOption {
       type = lib.types.attrsOf lib.types.str;
       default = {
-        TWS_ACCEPT_INCOMING = "true";
+        TWS_SETTINGS_PATH = "/home/ibgateway/tws_settings";
+        TWS_ACCEPT_INCOMING = "accept";
         CLEANUP_LOGS = "true";
       };
       description = "Environment variables passed directly to the IB Gateway container.";
+    };
+
+    volumes = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [
+        "/var/lib/etrader/ib-gateway/tws_settings:/home/ibgateway/tws_settings"
+      ];
+      example = [ "/srv/etrader/data/ib-gateway/tws_settings:/home/ibgateway/tws_settings" ];
+      description = ''
+        Volume mounts for persistent IB Gateway state. By default this mounts the
+        dedicated TWS settings directory under a generic host path so UI changes and
+        trusted IP settings survive container recreation without shadowing the image's
+        built-in bootstrap files.
+      '';
     };
 
     extraOptions = lib.mkOption {
@@ -69,6 +84,7 @@ in
         ports = cfg.ports;
         environmentFiles = cfg.environmentFiles;
         environment = cfg.environment;
+        volumes = cfg.volumes;
         extraOptions = cfg.extraOptions;
       };
     };

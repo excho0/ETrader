@@ -1,0 +1,86 @@
+name: etrader
+
+services:
+  ib-gateway:
+    image: ghcr.io/gnzsnz/ib-gateway:latest
+    container_name: etrader-ib-gateway
+    restart: unless-stopped
+    ports:
+      - "4002:4002"
+      - "5900:5900"
+    environment:
+      TWS_SETTINGS_PATH: ${IB_GATEWAY_SETTINGS_PATH:-/home/ibgateway/tws_settings}
+      TWS_ACCEPT_INCOMING: "accept"
+      CLEANUP_LOGS: "true"
+    env_file:
+      - path: ${IB_GATEWAY_ENV_FILE:-./ib-gateway.env}
+        required: false
+    volumes:
+      - ${IB_GATEWAY_DATA_DIR:-./data/ib-gateway/tws_settings}:${IB_GATEWAY_SETTINGS_PATH:-/home/ibgateway/tws_settings}
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/4002'"]
+      interval: 30s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  ib-bridge:
+    build:
+      context: .
+      dockerfile: ./apps/ib-bridge/Dockerfile
+    container_name: etrader-ib-bridge
+    restart: unless-stopped
+    depends_on:
+      ib-gateway:
+        condition: service_healthy
+    ports:
+      - "8040:8040"
+    env_file:
+      - path: ${IB_BRIDGE_ENV_FILE:-./apps/ib-bridge/.env}
+        required: false
+    environment:
+      API_HOST: 0.0.0.0
+      IB_HOST: ib-gateway
+      DATA_DIR: /data/ib-bridge
+      MCP_HTTP_HOST: 0.0.0.0
+      MCP_HTTP_PORT: 8040
+    volumes:
+      - ${IB_BRIDGE_DATA_DIR:-./data/ib-bridge}:/data/ib-bridge
+
+  openclaw-gateway:
+    profiles: ["openclaw"]
+    image: ${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw:latest}
+    container_name: etrader-openclaw-gateway
+    restart: unless-stopped
+    depends_on:
+      ib-bridge:
+        condition: service_started
+    env_file:
+      - path: ${OPENCLAW_ENV_FILE:-./openclaw.env}
+        required: false
+    environment:
+      HOME: /home/node
+      TERM: xterm-256color
+      OPENCLAW_GATEWAY_BIND: ${OPENCLAW_GATEWAY_BIND:-lan}
+      OPENCLAW_GATEWAY_PORT: ${OPENCLAW_GATEWAY_PORT:-18789}
+      OPENCLAW_BRIDGE_PORT: ${OPENCLAW_BRIDGE_PORT:-18790}
+      OPENCLAW_CONFIG_DIR: /home/node/.openclaw
+      OPENCLAW_WORKSPACE_DIR: /home/node/.openclaw/workspace
+      TZ: ${OPENCLAW_TZ:-UTC}
+    volumes:
+      - ${OPENCLAW_CONFIG_DIR:-./data/openclaw/config}:/home/node/.openclaw
+      - ${OPENCLAW_WORKSPACE_DIR:-./data/openclaw/workspace}:/home/node/.openclaw/workspace
+    ports:
+      - "${OPENCLAW_GATEWAY_PORT:-18789}:18789"
+      - "${OPENCLAW_BRIDGE_PORT:-18790}:18790"
+    init: true
+    command:
+      [
+        "node",
+        "dist/index.js",
+        "gateway",
+        "--bind",
+        "${OPENCLAW_GATEWAY_BIND:-lan}",
+        "--port",
+        "18789"
+      ]
