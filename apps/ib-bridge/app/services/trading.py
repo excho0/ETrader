@@ -5,12 +5,12 @@ import json
 import logging
 import math
 from collections import deque
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -125,6 +125,12 @@ class TradingRuntime:
     active_database_path: str | None = None
 
 
+@dataclass
+class ReadCacheEntry:
+    value: Any
+    expires_at: datetime
+
+
 _RUNTIME = TradingRuntime()
 
 
@@ -183,6 +189,9 @@ class TradingService:
         self._reconnect_task: asyncio.Task[None] | None = None
         self._shutdown_event = asyncio.Event()
         self._runtime = _RUNTIME
+        self._read_cache: dict[str, ReadCacheEntry] = {}
+        self._read_inflight: dict[str, asyncio.Task[Any]] = {}
+        self._read_cache_lock = asyncio.Lock()
 
     async def startup(self) -> None:
         initial_mode = self._settings.resolved_database_mode()
@@ -350,38 +359,88 @@ class TradingService:
         else:
             self._logger.warning(message, *args)
 
-    async def get_account_summary(self) -> AccountSummaryResponse:
-        async with self._request_lock:
-            summary = await self._client.account_summary()
-            return AccountSummaryResponse(
-                account_values=[
-                    AccountValue(tag=item.tag, value=item.value, currency=item.currency, account=item.account)
-                    for item in summary
-                ]
+    async def _cached_read(
+        self,
+        key: str,
+        ttl_seconds: float,
+        factory: Callable[[], Any],
+    ) -> Any:
+        now = datetime.now(UTC)
+        async with self._read_cache_lock:
+            cached = self._read_cache.get(key)
+            if cached is not None and cached.expires_at > now:
+                return cached.value
+            inflight = self._read_inflight.get(key)
+            if inflight is None:
+                async def runner() -> Any:
+                    result = factory()
+                    if asyncio.iscoroutine(result):
+                        return await result
+                    return result
+
+                inflight = asyncio.create_task(runner())
+                self._read_inflight[key] = inflight
+
+        try:
+            value = await inflight
+        except Exception:
+            async with self._read_cache_lock:
+                current = self._read_inflight.get(key)
+                if current is inflight:
+                    self._read_inflight.pop(key, None)
+            raise
+
+        async with self._read_cache_lock:
+            self._read_cache[key] = ReadCacheEntry(
+                value=value,
+                expires_at=datetime.now(UTC) + timedelta(seconds=ttl_seconds),
             )
+            current = self._read_inflight.get(key)
+            if current is inflight:
+                self._read_inflight.pop(key, None)
+        return value
+
+    async def get_account_summary(self) -> AccountSummaryResponse:
+        async def factory() -> AccountSummaryResponse:
+            async with self._request_lock:
+                summary = await self._client.account_summary()
+                return AccountSummaryResponse(
+                    account_values=[
+                        AccountValue(tag=item.tag, value=item.value, currency=item.currency, account=item.account)
+                        for item in summary
+                    ]
+                )
+
+        return cast(AccountSummaryResponse, await self._cached_read("account_summary", 2.0, factory))
 
     async def get_positions(self) -> list[PositionResponse]:
-        async with self._request_lock:
-            positions = await self._client.positions()
-            responses = [
-                PositionResponse(
-                    account=item.account,
-                    symbol=item.contract.symbol,
-                    exchange=item.contract.exchange,
-                    currency=item.contract.currency,
-                    position=float(item.position),
-                    average_cost=float(item.avgCost),
-                )
-                for item in positions
-            ]
-            for response in responses:
-                self._record_position_snapshot(response, source="broker_positions")
-            return responses
+        async def factory() -> list[PositionResponse]:
+            async with self._request_lock:
+                positions = await self._client.positions()
+                responses = [
+                    PositionResponse(
+                        account=item.account,
+                        symbol=item.contract.symbol,
+                        exchange=item.contract.exchange,
+                        currency=item.contract.currency,
+                        position=float(item.position),
+                        average_cost=float(item.avgCost),
+                    )
+                    for item in positions
+                ]
+                for response in responses:
+                    self._record_position_snapshot(response, source="broker_positions")
+                return responses
+
+        return cast(list[PositionResponse], await self._cached_read("positions", 2.0, factory))
 
     async def get_open_orders(self) -> list[OpenOrderResponse]:
-        async with self._request_lock:
-            trades = await self._client.open_trades()
-            return [self._open_order_response(trade) for trade in trades]
+        async def factory() -> list[OpenOrderResponse]:
+            async with self._request_lock:
+                trades = await self._client.open_trades()
+                return [self._open_order_response(trade) for trade in trades]
+
+        return cast(list[OpenOrderResponse], await self._cached_read("open_orders", 2.0, factory))
 
     async def get_recent_executions(self) -> list[ExecutionReportResponse]:
         async with self._request_lock:
@@ -928,27 +987,32 @@ class TradingService:
         currency: str,
         primary_exchange: str | None,
     ) -> MarketQuoteResponse:
-        async with self._request_lock:
-            try:
-                quote = await self._client.stock_quote(
+        cache_key = f"stock_quote:{symbol}:{exchange}:{currency}:{primary_exchange or '-'}"
+
+        async def factory() -> MarketQuoteResponse:
+            async with self._request_lock:
+                try:
+                    quote = await self._client.stock_quote(
+                        symbol=symbol,
+                        exchange=exchange,
+                        currency=currency,
+                        primary_exchange=primary_exchange,
+                    )
+                except ValueError as exc:
+                    raise TradingValidationError(str(exc)) from exc
+
+                return MarketQuoteResponse(
                     symbol=symbol,
                     exchange=exchange,
                     currency=currency,
-                    primary_exchange=primary_exchange,
+                    data_mode=str(quote["data_mode"]),
+                    bid=self._normalize_optional_float(quote["ticker"].bid),
+                    ask=self._normalize_optional_float(quote["ticker"].ask),
+                    last=self._normalize_optional_float(quote["ticker"].last),
+                    close=self._normalize_optional_float(quote["ticker"].close),
                 )
-            except ValueError as exc:
-                raise TradingValidationError(str(exc)) from exc
 
-            return MarketQuoteResponse(
-                symbol=symbol,
-                exchange=exchange,
-                currency=currency,
-                data_mode=str(quote["data_mode"]),
-                bid=self._normalize_optional_float(quote["ticker"].bid),
-                ask=self._normalize_optional_float(quote["ticker"].ask),
-                last=self._normalize_optional_float(quote["ticker"].last),
-                close=self._normalize_optional_float(quote["ticker"].close),
-            )
+        return cast(MarketQuoteResponse, await self._cached_read(cache_key, 3.0, factory))
 
     async def get_market_snapshot(
         self,
@@ -958,48 +1022,53 @@ class TradingService:
         currency: str,
         primary_exchange: str | None,
     ) -> MarketSnapshotResponse:
-        async with self._request_lock:
-            quote = await self._client.stock_quote(
+        cache_key = f"market_snapshot:{symbol}:{exchange}:{currency}:{primary_exchange or '-'}"
+
+        async def factory() -> MarketSnapshotResponse:
+            async with self._request_lock:
+                quote = await self._client.stock_quote(
+                    symbol=symbol,
+                    exchange=exchange,
+                    currency=currency,
+                    primary_exchange=primary_exchange,
+                )
+            ticker = quote["ticker"]
+            bid = self._normalize_optional_float(ticker.bid)
+            ask = self._normalize_optional_float(ticker.ask)
+            last = self._normalize_optional_float(ticker.last)
+            close = self._normalize_optional_float(ticker.close)
+            mid_price = self._mid_price(bid, ask)
+            spread = ask - bid if bid is not None and ask is not None else None
+            spread_bps = (spread / mid_price) * 10000 if spread is not None and mid_price not in (None, 0) else None
+            reference_price = last if last is not None else mid_price
+            day_change = reference_price - close if reference_price is not None and close is not None else None
+            day_change_percent = (day_change / close) * 100 if day_change is not None and close not in (None, 0) else None
+            return MarketSnapshotResponse(
                 symbol=symbol,
                 exchange=exchange,
                 currency=currency,
                 primary_exchange=primary_exchange,
-            )
-        ticker = quote["ticker"]
-        bid = self._normalize_optional_float(ticker.bid)
-        ask = self._normalize_optional_float(ticker.ask)
-        last = self._normalize_optional_float(ticker.last)
-        close = self._normalize_optional_float(ticker.close)
-        mid_price = self._mid_price(bid, ask)
-        spread = ask - bid if bid is not None and ask is not None else None
-        spread_bps = (spread / mid_price) * 10000 if spread is not None and mid_price not in (None, 0) else None
-        reference_price = last if last is not None else mid_price
-        day_change = reference_price - close if reference_price is not None and close is not None else None
-        day_change_percent = (day_change / close) * 100 if day_change is not None and close not in (None, 0) else None
-        return MarketSnapshotResponse(
-            symbol=symbol,
-            exchange=exchange,
-            currency=currency,
-            primary_exchange=primary_exchange,
-            data_mode=str(quote["data_mode"]),
-            bid=bid,
-            ask=ask,
-            last=last,
-            close=close,
-            mid_price=mid_price,
-            spread=spread,
-            spread_bps=spread_bps,
-            day_change=day_change,
-            day_change_percent=day_change_percent,
-            has_two_sided_market=bid is not None and ask is not None,
-            quote_quality=self._quote_quality(
                 data_mode=str(quote["data_mode"]),
                 bid=bid,
                 ask=ask,
-                spread_bps=spread_bps,
                 last=last,
-            ),
-        )
+                close=close,
+                mid_price=mid_price,
+                spread=spread,
+                spread_bps=spread_bps,
+                day_change=day_change,
+                day_change_percent=day_change_percent,
+                has_two_sided_market=bid is not None and ask is not None,
+                quote_quality=self._quote_quality(
+                    data_mode=str(quote["data_mode"]),
+                    bid=bid,
+                    ask=ask,
+                    spread_bps=spread_bps,
+                    last=last,
+                ),
+            )
+
+        return cast(MarketSnapshotResponse, await self._cached_read(cache_key, 3.0, factory))
 
     async def get_account_risk_snapshot(self) -> AccountRiskSnapshotResponse:
         async with self._request_lock:
