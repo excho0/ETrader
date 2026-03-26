@@ -2,8 +2,6 @@ import asyncio
 import logging
 import math
 from typing import Literal, TypedDict
-from uuid import uuid4
-
 from ib_async import AccountValue, Contract, Fill, IB, Order, Position, Ticker, Trade
 
 from app.core.config import Settings
@@ -276,25 +274,22 @@ class IBGatewayClient:
         stop_price: float | None,
         time_in_force: str,
     ) -> Trade:
-        qualified_contract = await self.qualify_stock_contract(
-            symbol=symbol,
-            exchange=exchange,
-            currency=currency,
-            primary_exchange=primary_exchange,
+        return await get_product_adapter("stock").place_order(
+            self,
+            InstrumentContractSpec(
+                instrument_type="stock",
+                symbol=symbol,
+                exchange=exchange,
+                currency=currency,
+                primary_exchange=primary_exchange,
+            ),
+            action=action,
+            quantity=quantity,
+            order_type=order_type,
+            limit_price=limit_price,
+            stop_price=stop_price,
+            time_in_force=time_in_force,
         )
-        order = Order()
-        order.action = action
-        order.totalQuantity = quantity
-        order.orderType = order_type
-        order.tif = time_in_force
-        if order_type == "LMT":
-            order.lmtPrice = limit_price
-        if order_type == "STP":
-            order.auxPrice = stop_price
-        if order_type == "STP LMT":
-            order.lmtPrice = limit_price
-            order.auxPrice = stop_price
-        return self._ib.placeOrder(qualified_contract, order)
 
     async def place_bracket_order(
         self,
@@ -310,24 +305,22 @@ class IBGatewayClient:
         stop_loss_price: float,
         time_in_force: str,
     ) -> list[Trade]:
-        qualified_contract = await self.qualify_stock_contract(
-            symbol=symbol,
-            exchange=exchange,
-            currency=currency,
-            primary_exchange=primary_exchange,
-        )
-        orders = self._ib.bracketOrder(
+        return await get_product_adapter("stock").place_bracket_order(
+            self,
+            InstrumentContractSpec(
+                instrument_type="stock",
+                symbol=symbol,
+                exchange=exchange,
+                currency=currency,
+                primary_exchange=primary_exchange,
+            ),
             action=action,
             quantity=quantity,
-            limitPrice=entry_limit_price,
-            takeProfitPrice=take_profit_price,
-            stopLossPrice=stop_loss_price,
+            entry_limit_price=entry_limit_price,
+            take_profit_price=take_profit_price,
+            stop_loss_price=stop_loss_price,
+            time_in_force=time_in_force,
         )
-        trades: list[Trade] = []
-        for order in orders:
-            order.tif = time_in_force
-            trades.append(self._ib.placeOrder(qualified_contract, order))
-        return trades
 
     async def place_position_exit_oca(
         self,
@@ -341,35 +334,20 @@ class IBGatewayClient:
         stop_loss_price: float,
         time_in_force: str,
     ) -> tuple[str, Trade, Trade]:
-        qualified_contract = await self.qualify_stock_contract(
-            symbol=symbol,
-            exchange=exchange,
-            currency=currency,
-            primary_exchange=primary_exchange,
+        return await get_product_adapter("stock").place_position_exit_oca(
+            self,
+            InstrumentContractSpec(
+                instrument_type="stock",
+                symbol=symbol,
+                exchange=exchange,
+                currency=currency,
+                primary_exchange=primary_exchange,
+            ),
+            quantity=quantity,
+            take_profit_price=take_profit_price,
+            stop_loss_price=stop_loss_price,
+            time_in_force=time_in_force,
         )
-        oca_group = f"etrader-exit-{symbol}-{uuid4()}"
-
-        take_profit = Order()
-        take_profit.action = "SELL"
-        take_profit.totalQuantity = quantity
-        take_profit.orderType = "LMT"
-        take_profit.lmtPrice = take_profit_price
-        take_profit.tif = time_in_force
-        take_profit.ocaGroup = oca_group
-        take_profit.ocaType = 1
-
-        stop_loss = Order()
-        stop_loss.action = "SELL"
-        stop_loss.totalQuantity = quantity
-        stop_loss.orderType = "STP"
-        stop_loss.auxPrice = stop_loss_price
-        stop_loss.tif = time_in_force
-        stop_loss.ocaGroup = oca_group
-        stop_loss.ocaType = 1
-
-        tp_trade = self._ib.placeOrder(qualified_contract, take_profit)
-        sl_trade = self._ib.placeOrder(qualified_contract, stop_loss)
-        return oca_group, tp_trade, sl_trade
 
     async def cancel_order(self, *, order_id: int) -> Trade:
         await self.ensure_connected()
