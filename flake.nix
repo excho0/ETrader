@@ -50,11 +50,13 @@
         NIX_LD_LIBRARY_PATH = runtimeLibraryPath;
 
         shellHook = ''
-          echo "ETrader dev shell loaded."
-          echo "- Node: $(node --version 2>/dev/null || true)"
-          echo "- Python: $(python --version 2>/dev/null || true)"
-          echo "- uv: $(uv --version 2>/dev/null || true)"
-          echo "- pnpm: $(pnpm --version 2>/dev/null || true)"
+          if [ -t 1 ]; then
+            echo "ETrader dev shell loaded."
+            echo "- Node: $(node --version 2>/dev/null || true)"
+            echo "- Python: $(python --version 2>/dev/null || true)"
+            echo "- uv: $(uv --version 2>/dev/null || true)"
+            echo "- pnpm: $(pnpm --version 2>/dev/null || true)"
+          fi
         '';
       };
     };

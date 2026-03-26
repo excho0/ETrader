@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+import ipaddress
 from typing import Literal
 
 import anyio
@@ -84,6 +85,18 @@ class LocalhostMCPAuthBypassApp:
         self._app = app
         self.state = getattr(app, "state", None)
 
+    @staticmethod
+    def _is_trusted_local_client(host: str | None) -> bool:
+        if host is None:
+            return False
+        if host in {"127.0.0.1", "::1"}:
+            return True
+        try:
+            address = ipaddress.ip_address(host)
+        except ValueError:
+            return False
+        return address.is_private or address.is_loopback
+
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http" or not settings.mcp_http_localhost_auth_bypass:
             await self._app(scope, receive, send)
@@ -91,7 +104,7 @@ class LocalhostMCPAuthBypassApp:
 
         client = scope.get("client")
         client_host = client[0] if client else None
-        if client_host not in {"127.0.0.1", "::1"}:
+        if not self._is_trusted_local_client(client_host):
             await self._app(scope, receive, send)
             return
 
@@ -126,7 +139,7 @@ async def current_trading_service():
     if _active_trading_service is not None:
         yield _active_trading_service
         return
-    async with current_trading_service() as service:
+    async with trading_service_lifespan(settings) as service:
         yield service
 
 READ_ONLY = ToolAnnotations(
