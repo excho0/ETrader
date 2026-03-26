@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 import ipaddress
 import logging
@@ -63,6 +64,7 @@ from app.services.trading import TradingService, trading_service_lifespan
 
 settings = get_settings()
 _active_trading_service: TradingService | None = None
+_active_trading_service_lock = asyncio.Lock()
 logger = logging.getLogger("uvicorn.app.mcp")
 
 mcp = FastMCP(
@@ -139,11 +141,16 @@ def set_active_trading_service(service: TradingService | None) -> None:
 
 @asynccontextmanager
 async def current_trading_service():
-    if _active_trading_service is not None:
-        yield _active_trading_service
-        return
-    async with trading_service_lifespan(settings) as service:
-        yield service
+    global _active_trading_service
+    if _active_trading_service is None:
+        async with _active_trading_service_lock:
+            if _active_trading_service is None:
+                service = TradingService(settings)
+                await service.startup()
+                _active_trading_service = service
+                logger.info("Initialized persistent stdio trading service")
+    assert _active_trading_service is not None
+    yield _active_trading_service
 
 READ_ONLY = ToolAnnotations(
     readOnlyHint=True,

@@ -28,6 +28,7 @@ class IBGatewayClient:
         self._logger = logging.getLogger("uvicorn.app.ib")
         self._connected_mode: Literal["paper", "live"] | None = None
         self._connected_port: int | None = None
+        self._connect_task: asyncio.Task[None] | None = None
 
     @property
     def ib(self) -> IB:
@@ -92,70 +93,96 @@ class IBGatewayClient:
                 writer.close()
                 await writer.wait_closed()
 
+    async def _connect_once(self) -> None:
+        errors: list[str] = []
+        candidates = self.connection_candidates()
+        primary_mode = candidates[0]["mode"] if candidates else None
+        for candidate in candidates:
+            try:
+                await self.probe_socket(
+                    host=candidate["host"],
+                    port=candidate["port"],
+                )
+                self._logger.info(
+                    "Connecting to IB target mode=%s host=%s port=%s client_id=%s",
+                    candidate["mode"],
+                    candidate["host"],
+                    candidate["port"],
+                    self._settings.ib_client_id,
+                )
+                await self._ib.connectAsync(
+                    candidate["host"],
+                    candidate["port"],
+                    clientId=self._settings.ib_client_id,
+                    timeout=self._settings.ib_connect_timeout_seconds,
+                    readonly=self._settings.ib_read_only,
+                )
+                self._connected_mode = candidate["mode"]
+                self._connected_port = candidate["port"]
+                self._logger.info(
+                    "Connected to IB target mode=%s host=%s port=%s",
+                    self._connected_mode,
+                    candidate["host"],
+                    self._connected_port,
+                )
+                return
+            except Exception as exc:
+                self._connected_mode = None
+                self._connected_port = None
+                detail = f"{candidate['mode']}@{candidate['host']}:{candidate['port']} -> {exc.__class__.__name__}"
+                message = str(exc).strip()
+                if message:
+                    detail = f"{detail}: {message}"
+                errors.append(detail)
+                try:
+                    self._ib.disconnect()
+                except Exception:
+                    pass
+                # In auto mode, a timeout on the primary candidate usually
+                # means the selected gateway side is still booting and not
+                # API-ready yet. Falling through to the opposite side just
+                # adds noise and delays the next retry.
+                if (
+                    self._settings.ib_target_mode == "auto"
+                    and primary_mode is not None
+                    and candidate["mode"] == primary_mode
+                    and isinstance(exc, TimeoutError)
+                ):
+                    break
+
+        raise ConnectionError(" ; ".join(errors))
+
     async def connect(self) -> None:
+        if self._ib.isConnected():
+            return
+
         async with self._lock:
             if self._ib.isConnected():
                 return
+            connect_task = self._connect_task
+            if connect_task is None:
+                connect_task = asyncio.create_task(self._connect_once())
+                self._connect_task = connect_task
 
-            errors: list[str] = []
-            candidates = self.connection_candidates()
-            primary_mode = candidates[0]["mode"] if candidates else None
-            for candidate in candidates:
-                try:
-                    await self.probe_socket(
-                        host=candidate["host"],
-                        port=candidate["port"],
-                    )
-                    self._logger.info(
-                        "Connecting to IB target mode=%s host=%s port=%s client_id=%s",
-                        candidate["mode"],
-                        candidate["host"],
-                        candidate["port"],
-                        self._settings.ib_client_id,
-                    )
-                    await self._ib.connectAsync(
-                        candidate["host"],
-                        candidate["port"],
-                        clientId=self._settings.ib_client_id,
-                        timeout=self._settings.ib_connect_timeout_seconds,
-                        readonly=self._settings.ib_read_only,
-                    )
-                    self._connected_mode = candidate["mode"]
-                    self._connected_port = candidate["port"]
-                    self._logger.info(
-                        "Connected to IB target mode=%s host=%s port=%s",
-                        self._connected_mode,
-                        candidate["host"],
-                        self._connected_port,
-                    )
-                    return
-                except Exception as exc:
-                    self._connected_mode = None
-                    self._connected_port = None
-                    detail = f"{candidate['mode']}@{candidate['host']}:{candidate['port']} -> {exc.__class__.__name__}"
-                    message = str(exc).strip()
-                    if message:
-                        detail = f"{detail}: {message}"
-                    errors.append(detail)
-                    try:
-                        self._ib.disconnect()
-                    except Exception:
-                        pass
-                    # In auto mode, a timeout on the primary candidate usually
-                    # means the selected gateway side is still booting and not
-                    # API-ready yet. Falling through to the opposite side just
-                    # adds noise and delays the next retry.
-                    if (
-                        self._settings.ib_target_mode == "auto"
-                        and primary_mode is not None
-                        and candidate["mode"] == primary_mode
-                        and isinstance(exc, TimeoutError)
-                    ):
-                        break
-
-            raise ConnectionError(" ; ".join(errors))
+        try:
+            await asyncio.shield(connect_task)
+        finally:
+            async with self._lock:
+                if self._connect_task is connect_task and connect_task.done():
+                    self._connect_task = None
 
     async def disconnect(self) -> None:
+        async with self._lock:
+            connect_task = self._connect_task
+            self._connect_task = None
+        if connect_task is not None and not connect_task.done():
+            connect_task.cancel()
+            try:
+                await connect_task
+            except asyncio.CancelledError:
+                pass
+            except Exception:
+                pass
         async with self._lock:
             if self._ib.isConnected():
                 self._ib.disconnect()
