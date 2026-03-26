@@ -69,10 +69,12 @@ from app.models.trading import (
     QualifiedStockContractResponse,
     ReducePositionRequest,
     BrokerReconciliationResponse,
+    SupportedInstrumentTypesResponse,
     SymbolConflictResponse,
     SymbolExposureResponse,
     TradeCandidateEvaluationResponse,
 )
+from app.services.products.registry import list_supported_instrument_types
 if TYPE_CHECKING:
     from ib_async import AccountValue as BrokerAccountValue
     from ib_async import Position as BrokerPosition
@@ -414,6 +416,20 @@ class TradingService:
                 )
 
         return cast(AccountSummaryResponse, await self._cached_read("account_summary", 2.0, factory))
+
+    async def get_supported_instrument_types(self) -> SupportedInstrumentTypesResponse:
+        return SupportedInstrumentTypesResponse(
+            supported_instrument_types=list_supported_instrument_types(),
+            default_instrument_type="stock",
+            generic_tools_preferred=True,
+            compatibility_wrappers={
+                "stock": [
+                    "trading_qualify_stock_contract",
+                    "trading_stock_quote",
+                    "trading_market_snapshot",
+                ]
+            },
+        )
 
     async def get_positions(self) -> list[PositionResponse]:
         async def factory() -> list[PositionResponse]:
