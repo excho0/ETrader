@@ -67,6 +67,10 @@ class Settings(BaseSettings):
     risk_live_approval_trade_notional: float = Field(default=5000.0, gt=0)
     approval_ttl_seconds: int = Field(default=900, gt=0)
     data_dir: str = str((Path(__file__).resolve().parents[2] / "data/ib-bridge"))
+    log_dir: str | None = None
+    log_file_name: str = "ib-bridge.log"
+    log_max_bytes: int = Field(default=5 * 1024 * 1024, gt=0)
+    log_backup_count: int = Field(default=5, ge=1)
     database_path_paper: str | None = None
     database_path_live: str | None = None
 
@@ -100,6 +104,14 @@ class Settings(BaseSettings):
         if explicit:
             return explicit
         return str(Path(self.data_dir) / f"trading-{resolved_mode}.sqlite3")
+
+    def resolved_log_dir(self) -> str:
+        if self.log_dir:
+            return self.log_dir
+        return str(Path(self.data_dir) / "logs")
+
+    def resolved_log_path(self) -> str:
+        return str(Path(self.resolved_log_dir()) / self.log_file_name)
 
 
 @lru_cache
