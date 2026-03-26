@@ -28,6 +28,7 @@ services:
       start_period: 60s
 
   ib-bridge:
+    profiles: ["mcp"]
     build:
       context: .
       dockerfile: ./apps/ib-bridge/Dockerfile
