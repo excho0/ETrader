@@ -1189,6 +1189,7 @@ class TradingService:
     async def get_symbol_exposure(
         self,
         *,
+        instrument_type: str = "stock",
         symbol: str,
         exchange: str,
         currency: str,
@@ -1225,6 +1226,7 @@ class TradingService:
             directional_exposure = "short"
 
         return SymbolExposureResponse(
+            instrument_type=instrument_type,
             symbol=symbol,
             exchange=exchange,
             currency=currency,
@@ -1242,6 +1244,7 @@ class TradingService:
     async def get_order_conflicts(
         self,
         *,
+        instrument_type: str = "stock",
         symbol: str,
         action: str,
         quantity: float,
@@ -1250,6 +1253,7 @@ class TradingService:
         primary_exchange: str | None,
     ) -> SymbolConflictResponse:
         exposure = await self.get_symbol_exposure(
+            instrument_type=instrument_type,
             symbol=symbol,
             exchange=exchange,
             currency=currency,
@@ -1268,6 +1272,7 @@ class TradingService:
         if exposure.has_open_orders and len(reasons) >= 2:
             severity = "error"
         return SymbolConflictResponse(
+            instrument_type=instrument_type,
             symbol=symbol,
             conflict_detected=bool(reasons),
             severity=severity,
@@ -1305,6 +1310,7 @@ class TradingService:
             warnings.append("Budget is too small to buy a single whole share at the reference price")
 
         return CashSizingResponse(
+            instrument_type=request.instrument_type,
             symbol=request.symbol,
             reference_price=request.reference_price,
             budget_type=request.budget_type,
@@ -1328,12 +1334,14 @@ class TradingService:
             primary_exchange=request.primary_exchange,
         )
         exposure = await self.get_symbol_exposure(
+            instrument_type=request.instrument_type,
             symbol=request.symbol,
             exchange=request.exchange,
             currency=request.currency,
             primary_exchange=request.primary_exchange,
         )
         conflicts = await self.get_order_conflicts(
+            instrument_type=request.instrument_type,
             symbol=request.symbol,
             action=request.action,
             quantity=request.quantity,
@@ -1505,6 +1513,7 @@ class TradingService:
         severity = "error" if blockers else "warning" if warnings or approval_required else "ok"
         execution_quality = snapshot.quote_quality
         response = ExecutionGuardrailsResponse(
+            instrument_type=request.instrument_type,
             symbol=request.symbol,
             action=request.action,
             quantity=request.quantity,
@@ -1529,11 +1538,14 @@ class TradingService:
         return response
 
     async def advise_order(self, request: OrderPreviewRequest) -> OrderAdvisorResponse:
-        snapshot = await self.get_market_snapshot(
-            symbol=request.symbol,
-            exchange=request.exchange,
-            currency=request.currency,
-            primary_exchange=request.primary_exchange,
+        snapshot = await self.get_instrument_snapshot(
+            InstrumentContractSpec(
+                instrument_type=request.instrument_type,
+                symbol=request.symbol,
+                exchange=request.exchange,
+                currency=request.currency,
+                primary_exchange=request.primary_exchange,
+            )
         )
         guardrails = await self.get_execution_guardrails(request)
 
@@ -1565,6 +1577,7 @@ class TradingService:
             rationale.append("Guardrail blockers must be resolved before any submission")
 
         return OrderAdvisorResponse(
+            instrument_type=request.instrument_type,
             symbol=request.symbol,
             action=request.action,
             quantity=request.quantity,
@@ -1579,13 +1592,17 @@ class TradingService:
         )
 
     async def evaluate_trade_candidate(self, request: OrderPreviewRequest) -> TradeCandidateEvaluationResponse:
-        market_snapshot = await self.get_market_snapshot(
-            symbol=request.symbol,
-            exchange=request.exchange,
-            currency=request.currency,
-            primary_exchange=request.primary_exchange,
+        market_snapshot = await self.get_instrument_snapshot(
+            InstrumentContractSpec(
+                instrument_type=request.instrument_type,
+                symbol=request.symbol,
+                exchange=request.exchange,
+                currency=request.currency,
+                primary_exchange=request.primary_exchange,
+            )
         )
         symbol_exposure = await self.get_symbol_exposure(
+            instrument_type=request.instrument_type,
             symbol=request.symbol,
             exchange=request.exchange,
             currency=request.currency,
@@ -1636,6 +1653,7 @@ class TradingService:
         guardrails = await self.get_execution_guardrails(request)
         warnings = list(guardrails.warnings) + list(guardrails.blockers)
         return OrderPreviewResponse(
+            instrument_type=request.instrument_type,
             symbol=request.symbol,
             action=request.action,
             quantity=request.quantity,
@@ -1869,6 +1887,7 @@ class TradingService:
 
     async def close_symbol_position(self, request: ClosePositionRequest) -> OrderSubmissionResponse:
         exposure = await self.get_symbol_exposure(
+            instrument_type=request.instrument_type,
             symbol=request.symbol,
             exchange=request.exchange,
             currency=request.currency,
@@ -1879,11 +1898,14 @@ class TradingService:
         if exposure.has_open_orders:
             raise TradingValidationError("Cannot close position while open orders already exist for this symbol")
 
-        snapshot = await self.get_market_snapshot(
-            symbol=request.symbol,
-            exchange=request.exchange,
-            currency=request.currency,
-            primary_exchange=request.primary_exchange,
+        snapshot = await self.get_instrument_snapshot(
+            InstrumentContractSpec(
+                instrument_type=request.instrument_type,
+                symbol=request.symbol,
+                exchange=request.exchange,
+                currency=request.currency,
+                primary_exchange=request.primary_exchange,
+            )
         )
         if not snapshot.has_two_sided_market:
             raise TradingValidationError("Cannot derive a safe close price because bid/ask market is incomplete")
@@ -1895,6 +1917,7 @@ class TradingService:
             raise TradingValidationError("Cannot derive a safe close limit price from the current market snapshot")
 
         close_request = OrderPreviewRequest(
+            instrument_type=request.instrument_type,
             symbol=request.symbol,
             action=action,
             quantity=quantity,
@@ -1942,6 +1965,7 @@ class TradingService:
             )
 
         return OrderPreviewRequest(
+            instrument_type=request.instrument_type,
             symbol=request.symbol,
             action=action,
             quantity=request.quantity,
@@ -1966,6 +1990,7 @@ class TradingService:
 
     async def _normalize_reduce_position_request(self, request: ReducePositionRequest) -> OrderPreviewRequest:
         exposure = await self.get_symbol_exposure(
+            instrument_type=request.instrument_type,
             symbol=request.symbol,
             exchange=request.exchange,
             currency=request.currency,
@@ -1980,11 +2005,14 @@ class TradingService:
         if exposure.has_open_orders:
             raise TradingValidationError("Cannot reduce position while open orders already exist for this symbol")
 
-        snapshot = await self.get_market_snapshot(
-            symbol=request.symbol,
-            exchange=request.exchange,
-            currency=request.currency,
-            primary_exchange=request.primary_exchange,
+        snapshot = await self.get_instrument_snapshot(
+            InstrumentContractSpec(
+                instrument_type=request.instrument_type,
+                symbol=request.symbol,
+                exchange=request.exchange,
+                currency=request.currency,
+                primary_exchange=request.primary_exchange,
+            )
         )
         if not snapshot.has_two_sided_market:
             raise TradingValidationError("Cannot derive a safe reduce price because bid/ask market is incomplete")
@@ -1995,6 +2023,7 @@ class TradingService:
             raise TradingValidationError("Cannot derive a safe reduce limit price from the current market snapshot")
 
         return OrderPreviewRequest(
+            instrument_type=request.instrument_type,
             symbol=request.symbol,
             action=action,
             quantity=request.quantity,
@@ -2056,6 +2085,7 @@ class TradingService:
         async with self._request_lock:
             if request.order_type == "BRACKET":
                 trades = await self._client.place_bracket_order(
+                    instrument_type=request.instrument_type,
                     symbol=request.symbol,
                     action=request.action,
                     quantity=request.quantity,
@@ -2072,6 +2102,7 @@ class TradingService:
                 status = str(parent.orderStatus.status)
             else:
                 trade = await self._client.place_order(
+                    instrument_type=request.instrument_type,
                     symbol=request.symbol,
                     action=request.action,
                     quantity=request.quantity,
@@ -2095,6 +2126,7 @@ class TradingService:
             order_id,
         )
         response = OrderSubmissionResponse(
+            instrument_type=request.instrument_type,
             order_id=order_id,
             status=status,
             symbol=request.symbol,

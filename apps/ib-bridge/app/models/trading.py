@@ -2,7 +2,7 @@ from pydantic import BaseModel, Field
 
 
 class InstrumentContractSpec(BaseModel):
-    instrument_type: str = Field(default="stock", pattern="^(stock)$")
+    instrument_type: str = Field(default="stock", pattern="^[a-z][a-z0-9_]*$")
     symbol: str
     exchange: str = "SMART"
     currency: str = "USD"
@@ -127,6 +127,7 @@ class SymbolExposureResponse(BaseModel):
 
 
 class SymbolConflictResponse(BaseModel):
+    instrument_type: str = "stock"
     symbol: str
     conflict_detected: bool
     severity: str
@@ -158,7 +159,7 @@ class PortfolioRiskSnapshotResponse(BaseModel):
 
 
 class CashSizingRequest(BaseModel):
-    instrument_type: str = Field(default="stock", pattern="^(stock)$")
+    instrument_type: str = Field(default="stock", pattern="^[a-z][a-z0-9_]*$")
     symbol: str
     reference_price: float = Field(gt=0)
     budget_type: str = Field(pattern="^(cash|buying_power_percent|net_liquidation_percent)$")
@@ -401,7 +402,7 @@ class ExecutionReportResponse(BaseModel):
 
 
 class OrderPreviewRequest(BaseModel):
-    instrument_type: str = Field(default="stock", pattern="^(stock)$")
+    instrument_type: str = Field(default="stock", pattern="^[a-z][a-z0-9_]*$")
     symbol: str
     action: str = Field(pattern="^(BUY|SELL)$")
     quantity: float = Field(gt=0)
@@ -455,6 +456,7 @@ class OrderSubmissionResponse(BaseModel):
 
 
 class ClosePositionRequest(BaseModel):
+    instrument_type: str = Field(default="stock", pattern="^[a-z][a-z0-9_]*$")
     symbol: str
     exchange: str = "SMART"
     currency: str = "USD"
@@ -469,6 +471,7 @@ class ClosePositionRequest(BaseModel):
 
 
 class OpenPositionRequest(BaseModel):
+    instrument_type: str = Field(default="stock", pattern="^[a-z][a-z0-9_]*$")
     symbol: str
     side: str = Field(pattern="^(long|short)$")
     quantity: float = Field(gt=0)
@@ -491,6 +494,7 @@ class OpenPositionRequest(BaseModel):
 
 
 class ReducePositionRequest(BaseModel):
+    instrument_type: str = Field(default="stock", pattern="^[a-z][a-z0-9_]*$")
     symbol: str
     quantity: float = Field(gt=0)
     exchange: str = "SMART"

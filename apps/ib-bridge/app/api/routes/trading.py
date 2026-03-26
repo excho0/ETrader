@@ -317,6 +317,26 @@ async def symbol_exposure(
     _: object = Depends(require_http_scopes(READ_SCOPE)),
 ) -> SymbolExposureResponse:
     return await trading_service.get_symbol_exposure(
+        instrument_type="stock",
+        symbol=symbol,
+        exchange=exchange,
+        currency=currency,
+        primary_exchange=primary_exchange,
+    )
+
+
+@router.get("/exposure/{instrument_type}/{symbol}", response_model=SymbolExposureResponse)
+async def instrument_symbol_exposure(
+    instrument_type: str,
+    symbol: str,
+    primary_exchange: str | None = Query(default=None),
+    currency: str = Query(default="USD"),
+    exchange: str = Query(default="SMART"),
+    trading_service: TradingService = Depends(get_trading_service),
+    _: object = Depends(require_http_scopes(READ_SCOPE)),
+) -> SymbolExposureResponse:
+    return await trading_service.get_symbol_exposure(
+        instrument_type=instrument_type,
         symbol=symbol,
         exchange=exchange,
         currency=currency,
@@ -331,6 +351,7 @@ async def order_conflicts(
     _: object = Depends(require_http_scopes(READ_SCOPE)),
 ) -> SymbolConflictResponse:
     return await trading_service.get_order_conflicts(
+        instrument_type=request.instrument_type,
         symbol=request.symbol,
         action=request.action,
         quantity=request.quantity,
