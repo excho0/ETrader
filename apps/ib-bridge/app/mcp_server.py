@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 import ipaddress
+import logging
 from typing import Literal
 
 import anyio
@@ -9,6 +10,7 @@ from mcp.types import ToolAnnotations
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.core.config import get_settings
+from app.core.logging import configure_logging
 from app.core.security import (
     DIAGNOSTICS_SCOPE,
     EXECUTE_SCOPE,
@@ -61,6 +63,7 @@ from app.services.trading import TradingService, trading_service_lifespan
 
 settings = get_settings()
 _active_trading_service: TradingService | None = None
+logger = logging.getLogger("uvicorn.app.mcp")
 
 mcp = FastMCP(
     "etrader-trading",
@@ -1269,6 +1272,20 @@ async def reconcile_broker_state() -> BrokerReconciliationResponse:
 
 
 def main() -> None:
+    configure_logging(
+        settings.log_level,
+        log_path=settings.resolved_log_path(),
+        max_bytes=settings.log_max_bytes,
+        backup_count=settings.log_backup_count,
+    )
+    logger.info(
+        "Starting ib-bridge stdio MCP env=%s ib=%s:%s client_id=%s auto_connect=%s",
+        settings.env,
+        settings.ib_host,
+        settings.resolved_ib_port(),
+        settings.ib_client_id,
+        settings.auto_connect_on_startup,
+    )
     mcp.run()
 
 
