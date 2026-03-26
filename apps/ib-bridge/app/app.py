@@ -18,7 +18,12 @@ logger = logging.getLogger("uvicorn.app.lifecycle")
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
-    configure_logging(settings.log_level)
+    configure_logging(
+        settings.log_level,
+        log_path=settings.resolved_log_path(),
+        max_bytes=settings.log_max_bytes,
+        backup_count=settings.log_backup_count,
+    )
     mcp_app = build_secure_http_mcp_app()
     mcp_session_manager = mcp_app.state.mcp_session_manager
 
