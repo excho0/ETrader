@@ -18,6 +18,7 @@ from peewee import ModelSelect
 from pydantic import BaseModel
 
 from app.core.config import Settings
+from app.core.instrument_types import InstrumentType
 from app.db import (
     ApprovalRecordStore,
     AuditEventRecord,
@@ -420,7 +421,7 @@ class TradingService:
     async def get_supported_instrument_types(self) -> SupportedInstrumentTypesResponse:
         return SupportedInstrumentTypesResponse(
             supported_instrument_types=list_supported_instrument_types(),
-            default_instrument_type="stock",
+            default_instrument_type=InstrumentType.STOCK,
             generic_tools_preferred=True,
             compatibility_wrappers={
                 "stock": [

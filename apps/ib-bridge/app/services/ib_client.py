@@ -5,6 +5,7 @@ from typing import Literal, TypedDict
 from ib_async import AccountValue, Contract, Fill, IB, Order, Position, Ticker, Trade
 
 from app.core.config import Settings
+from app.core.instrument_types import InstrumentType
 from app.models.trading import InstrumentContractSpec
 from app.services.products.registry import get_product_adapter
 
@@ -263,7 +264,7 @@ class IBGatewayClient:
     async def place_order(
         self,
         *,
-        instrument_type: str = "stock",
+        instrument_type: InstrumentType = InstrumentType.STOCK,
         symbol: str,
         action: str,
         quantity: float,
@@ -295,7 +296,7 @@ class IBGatewayClient:
     async def place_bracket_order(
         self,
         *,
-        instrument_type: str = "stock",
+        instrument_type: InstrumentType = InstrumentType.STOCK,
         symbol: str,
         action: str,
         quantity: float,
@@ -327,7 +328,7 @@ class IBGatewayClient:
     async def place_position_exit_oca(
         self,
         *,
-        instrument_type: str = "stock",
+        instrument_type: InstrumentType = InstrumentType.STOCK,
         symbol: str,
         quantity: float,
         exchange: str,

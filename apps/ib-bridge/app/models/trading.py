@@ -1,17 +1,17 @@
 from pydantic import BaseModel, Field, field_validator
 
-from app.core.instrument_types import ensure_supported_instrument_type
+from app.core.instrument_types import InstrumentType, ensure_supported_instrument_type
 
 
 class InstrumentTypeAwareModel(BaseModel):
     @field_validator("instrument_type", check_fields=False)
     @classmethod
-    def validate_instrument_type(cls, value: str) -> str:
+    def validate_instrument_type(cls, value: str | InstrumentType) -> InstrumentType:
         return ensure_supported_instrument_type(value)
 
 
 class InstrumentContractSpec(InstrumentTypeAwareModel):
-    instrument_type: str = Field(default="stock", pattern="^[a-z][a-z0-9_]*$")
+    instrument_type: InstrumentType = Field(default=InstrumentType.STOCK)
     symbol: str
     exchange: str = "SMART"
     currency: str = "USD"
@@ -19,14 +19,14 @@ class InstrumentContractSpec(InstrumentTypeAwareModel):
 
 
 class SupportedInstrumentTypesResponse(BaseModel):
-    supported_instrument_types: list[str]
-    default_instrument_type: str
+    supported_instrument_types: list[InstrumentType]
+    default_instrument_type: InstrumentType
     generic_tools_preferred: bool = True
     compatibility_wrappers: dict[str, list[str]] = {}
 
 
 class QualifiedContractResponse(InstrumentTypeAwareModel):
-    instrument_type: str = "stock"
+    instrument_type: InstrumentType = InstrumentType.STOCK
     con_id: int
     symbol: str
     exchange: str
@@ -37,7 +37,7 @@ class QualifiedContractResponse(InstrumentTypeAwareModel):
 
 
 class PositionResponse(InstrumentTypeAwareModel):
-    instrument_type: str = "stock"
+    instrument_type: InstrumentType = InstrumentType.STOCK
     account: str
     symbol: str
     exchange: str
@@ -67,7 +67,7 @@ class ConnectivityProbeResponse(BaseModel):
 
 
 class QualifiedStockContractResponse(InstrumentTypeAwareModel):
-    instrument_type: str = "stock"
+    instrument_type: InstrumentType = InstrumentType.STOCK
     con_id: int
     symbol: str
     exchange: str
@@ -78,7 +78,7 @@ class QualifiedStockContractResponse(InstrumentTypeAwareModel):
 
 
 class MarketQuoteResponse(InstrumentTypeAwareModel):
-    instrument_type: str = "stock"
+    instrument_type: InstrumentType = InstrumentType.STOCK
     symbol: str
     exchange: str
     currency: str
@@ -90,7 +90,7 @@ class MarketQuoteResponse(InstrumentTypeAwareModel):
 
 
 class MarketSnapshotResponse(InstrumentTypeAwareModel):
-    instrument_type: str = "stock"
+    instrument_type: InstrumentType = InstrumentType.STOCK
     symbol: str
     exchange: str
     currency: str
@@ -127,7 +127,7 @@ class AccountRiskSnapshotResponse(BaseModel):
 
 
 class SymbolExposureResponse(InstrumentTypeAwareModel):
-    instrument_type: str = "stock"
+    instrument_type: InstrumentType = InstrumentType.STOCK
     symbol: str
     exchange: str
     currency: str
@@ -143,7 +143,7 @@ class SymbolExposureResponse(InstrumentTypeAwareModel):
 
 
 class SymbolConflictResponse(InstrumentTypeAwareModel):
-    instrument_type: str = "stock"
+    instrument_type: InstrumentType = InstrumentType.STOCK
     symbol: str
     conflict_detected: bool
     severity: str
@@ -154,7 +154,7 @@ class SymbolConflictResponse(InstrumentTypeAwareModel):
 
 
 class PortfolioRiskItem(InstrumentTypeAwareModel):
-    instrument_type: str = "stock"
+    instrument_type: InstrumentType = InstrumentType.STOCK
     symbol: str
     currency: str
     position: float
@@ -175,7 +175,7 @@ class PortfolioRiskSnapshotResponse(BaseModel):
 
 
 class CashSizingRequest(InstrumentTypeAwareModel):
-    instrument_type: str = Field(default="stock", pattern="^[a-z][a-z0-9_]*$")
+    instrument_type: InstrumentType = Field(default=InstrumentType.STOCK)
     symbol: str
     reference_price: float = Field(gt=0)
     budget_type: str = Field(pattern="^(cash|buying_power_percent|net_liquidation_percent)$")
@@ -184,7 +184,7 @@ class CashSizingRequest(InstrumentTypeAwareModel):
 
 
 class CashSizingResponse(InstrumentTypeAwareModel):
-    instrument_type: str = "stock"
+    instrument_type: InstrumentType = InstrumentType.STOCK
     symbol: str
     reference_price: float
     budget_type: str
@@ -197,7 +197,7 @@ class CashSizingResponse(InstrumentTypeAwareModel):
 
 
 class ExecutionGuardrailsResponse(InstrumentTypeAwareModel):
-    instrument_type: str = "stock"
+    instrument_type: InstrumentType = InstrumentType.STOCK
     symbol: str
     action: str
     quantity: float
@@ -219,7 +219,7 @@ class ExecutionGuardrailsResponse(InstrumentTypeAwareModel):
 
 
 class OrderAdvisorResponse(InstrumentTypeAwareModel):
-    instrument_type: str = "stock"
+    instrument_type: InstrumentType = InstrumentType.STOCK
     symbol: str
     action: str
     quantity: float
@@ -323,7 +323,7 @@ class CancelAllOrdersResponse(BaseModel):
 
 
 class OrderStatusResponse(InstrumentTypeAwareModel):
-    instrument_type: str = "stock"
+    instrument_type: InstrumentType = InstrumentType.STOCK
     order_id: str
     status: str
     symbol: str | None = None
@@ -338,7 +338,7 @@ class OrderStatusResponse(InstrumentTypeAwareModel):
 
 
 class OrderLifecycleEventResponse(InstrumentTypeAwareModel):
-    instrument_type: str = "stock"
+    instrument_type: InstrumentType = InstrumentType.STOCK
     event_id: str
     order_id: str
     symbol: str | None = None
@@ -379,7 +379,7 @@ class BrokerReconciliationResponse(BaseModel):
 
 
 class PositionSnapshotResponse(InstrumentTypeAwareModel):
-    instrument_type: str = "stock"
+    instrument_type: InstrumentType = InstrumentType.STOCK
     snapshot_id: str
     symbol: str
     account: str | None = None
@@ -392,7 +392,7 @@ class PositionSnapshotResponse(InstrumentTypeAwareModel):
 
 
 class ExecutionQualityResponse(InstrumentTypeAwareModel):
-    instrument_type: str = "stock"
+    instrument_type: InstrumentType = InstrumentType.STOCK
     order_id: str
     symbol: str
     action: str | None = None
@@ -409,7 +409,7 @@ class ExecutionQualityResponse(InstrumentTypeAwareModel):
 
 
 class ExecutionReportResponse(InstrumentTypeAwareModel):
-    instrument_type: str = "stock"
+    instrument_type: InstrumentType = InstrumentType.STOCK
     symbol: str
     side: str
     shares: float
@@ -420,7 +420,7 @@ class ExecutionReportResponse(InstrumentTypeAwareModel):
 
 
 class OrderPreviewRequest(InstrumentTypeAwareModel):
-    instrument_type: str = Field(default="stock", pattern="^[a-z][a-z0-9_]*$")
+    instrument_type: InstrumentType = Field(default=InstrumentType.STOCK)
     symbol: str
     action: str = Field(pattern="^(BUY|SELL)$")
     quantity: float = Field(gt=0)
@@ -444,7 +444,7 @@ class OrderPreviewRequest(InstrumentTypeAwareModel):
 
 
 class OrderPreviewResponse(InstrumentTypeAwareModel):
-    instrument_type: str = "stock"
+    instrument_type: InstrumentType = InstrumentType.STOCK
     symbol: str
     action: str
     quantity: float
@@ -459,7 +459,7 @@ class OrderPreviewResponse(InstrumentTypeAwareModel):
 
 
 class OrderSubmissionResponse(InstrumentTypeAwareModel):
-    instrument_type: str = "stock"
+    instrument_type: InstrumentType = InstrumentType.STOCK
     order_id: str
     status: str
     symbol: str
@@ -474,7 +474,7 @@ class OrderSubmissionResponse(InstrumentTypeAwareModel):
 
 
 class ClosePositionRequest(InstrumentTypeAwareModel):
-    instrument_type: str = Field(default="stock", pattern="^[a-z][a-z0-9_]*$")
+    instrument_type: InstrumentType = Field(default=InstrumentType.STOCK)
     symbol: str
     exchange: str = "SMART"
     currency: str = "USD"
@@ -489,7 +489,7 @@ class ClosePositionRequest(InstrumentTypeAwareModel):
 
 
 class OpenPositionRequest(InstrumentTypeAwareModel):
-    instrument_type: str = Field(default="stock", pattern="^[a-z][a-z0-9_]*$")
+    instrument_type: InstrumentType = Field(default=InstrumentType.STOCK)
     symbol: str
     side: str = Field(pattern="^(long|short)$")
     quantity: float = Field(gt=0)
@@ -512,7 +512,7 @@ class OpenPositionRequest(InstrumentTypeAwareModel):
 
 
 class ReducePositionRequest(InstrumentTypeAwareModel):
-    instrument_type: str = Field(default="stock", pattern="^[a-z][a-z0-9_]*$")
+    instrument_type: InstrumentType = Field(default=InstrumentType.STOCK)
     symbol: str
     quantity: float = Field(gt=0)
     exchange: str = "SMART"
@@ -535,7 +535,7 @@ class PositionActionPlanResponse(BaseModel):
 
 
 class OpenOrderResponse(InstrumentTypeAwareModel):
-    instrument_type: str = "stock"
+    instrument_type: InstrumentType = InstrumentType.STOCK
     order_id: str
     perm_id: str
     client_id: int
