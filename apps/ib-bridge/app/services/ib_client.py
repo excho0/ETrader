@@ -263,6 +263,11 @@ class IBGatewayClient:
             return {"ticker": live_ticker, "data_mode": "live"}
 
         delayed_ticker = await self._request_market_data(qualified_contract, market_data_type=3)
+        if not self._ticker_has_value(delayed_ticker):
+            raise ValueError(
+                f"Market data returned no usable prices for symbol={symbol} "
+                f"(exchange={qualified_contract.exchange}, primaryExchange={getattr(qualified_contract, 'primaryExchange', None)})"
+            )
         return {"ticker": delayed_ticker, "data_mode": "delayed"}
 
     async def place_order(
