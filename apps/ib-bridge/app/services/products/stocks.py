@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from ib_async import Contract, Stock
+from uuid import uuid4
+
+from ib_async import Contract, Order, Stock
 
 from app.models.trading import InstrumentContractSpec
 from app.services.products.base import ProductAdapter
@@ -75,3 +77,91 @@ class StockProductAdapter(ProductAdapter):
             symbol=spec.symbol,
         )
         return {"ticker": delayed_ticker, "data_mode": "delayed"}
+
+    async def place_order(
+        self,
+        client,
+        spec: InstrumentContractSpec,
+        *,
+        action: str,
+        quantity: float,
+        order_type: str,
+        limit_price: float | None,
+        stop_price: float | None,
+        time_in_force: str,
+    ):
+        qualified_contract = await self.qualify_contract(client, spec)
+        order = Order()
+        order.action = action
+        order.totalQuantity = quantity
+        order.orderType = order_type
+        order.tif = time_in_force
+        if order_type == "LMT":
+            order.lmtPrice = limit_price
+        if order_type == "STP":
+            order.auxPrice = stop_price
+        if order_type == "STP LMT":
+            order.lmtPrice = limit_price
+            order.auxPrice = stop_price
+        return client.ib.placeOrder(qualified_contract, order)
+
+    async def place_bracket_order(
+        self,
+        client,
+        spec: InstrumentContractSpec,
+        *,
+        action: str,
+        quantity: float,
+        entry_limit_price: float,
+        take_profit_price: float,
+        stop_loss_price: float,
+        time_in_force: str,
+    ):
+        qualified_contract = await self.qualify_contract(client, spec)
+        orders = client.ib.bracketOrder(
+            action=action,
+            quantity=quantity,
+            limitPrice=entry_limit_price,
+            takeProfitPrice=take_profit_price,
+            stopLossPrice=stop_loss_price,
+        )
+        trades: list = []
+        for order in orders:
+            order.tif = time_in_force
+            trades.append(client.ib.placeOrder(qualified_contract, order))
+        return trades
+
+    async def place_position_exit_oca(
+        self,
+        client,
+        spec: InstrumentContractSpec,
+        *,
+        quantity: float,
+        take_profit_price: float,
+        stop_loss_price: float,
+        time_in_force: str,
+    ):
+        qualified_contract = await self.qualify_contract(client, spec)
+        oca_group = f"etrader-exit-{spec.symbol}-{uuid4()}"
+
+        take_profit = Order()
+        take_profit.action = "SELL"
+        take_profit.totalQuantity = quantity
+        take_profit.orderType = "LMT"
+        take_profit.lmtPrice = take_profit_price
+        take_profit.tif = time_in_force
+        take_profit.ocaGroup = oca_group
+        take_profit.ocaType = 1
+
+        stop_loss = Order()
+        stop_loss.action = "SELL"
+        stop_loss.totalQuantity = quantity
+        stop_loss.orderType = "STP"
+        stop_loss.auxPrice = stop_loss_price
+        stop_loss.tif = time_in_force
+        stop_loss.ocaGroup = oca_group
+        stop_loss.ocaType = 1
+
+        tp_trade = client.ib.placeOrder(qualified_contract, take_profit)
+        sl_trade = client.ib.placeOrder(qualified_contract, stop_loss)
+        return oca_group, tp_trade, sl_trade
