@@ -9,12 +9,14 @@ let
   composeFileArgs = lib.concatMapStringsSep " " (f: "-f ${lib.escapeShellArg f}") resolvedComposeFiles;
   projectArg = lib.optionalString (cfg.projectName != null)
     "--project-name ${lib.escapeShellArg cfg.projectName}";
+  profileArgs = lib.concatMapStringsSep " " (profile: "--profile ${lib.escapeShellArg profile}") cfg.profiles;
   extraArgs = lib.concatStringsSep " " cfg.extraArgs;
 
   upArgs =
     lib.concatStringsSep " " ([
       composeFileArgs
       projectArg
+      profileArgs
       "up -d"
     ]
     ++ lib.optional cfg.pullOnStart "--pull always"
@@ -26,6 +28,7 @@ let
     lib.concatStringsSep " " ([
       composeFileArgs
       projectArg
+      profileArgs
       "down"
       "--remove-orphans"
     ] ++ lib.optional (extraArgs != "") extraArgs);
@@ -123,6 +126,13 @@ in
       type = lib.types.nullOr lib.types.str;
       default = "etrader";
       description = "Optional compose project name override.";
+    };
+
+    profiles = lib.mkOption {
+      type = lib.types.listOf lib.types.str;
+      default = [ "mcp" ];
+      example = [ "mcp" "openclaw" ];
+      description = "Compose profiles enabled for compose startup and shutdown.";
     };
 
     pullOnStart = lib.mkOption {

@@ -46,11 +46,12 @@ Import the aggregate module from a parent flake:
   services.etrader.compose = {
     enable = true;
     environmentFiles = [ <compose-env-file> ];
+    profiles = [ "mcp" ];
   };
 }
 ```
 
-The compose module wraps `docker compose up -d` / `down` in a systemd-managed unit, mirroring the `estudio` pattern.
+The compose module wraps `docker compose up -d` / `down` in a systemd-managed unit, mirroring the `estudio` pattern. By default it enables the `mcp` profile so the IB bridge and MCP endpoint come up for Codex.
 
 ## Compose Stack
 
@@ -69,7 +70,7 @@ Persistent runtime state is stored under the project-local `data/` tree by defau
 Local workflow:
 
 ```sh
-docker compose up -d --build
+docker compose --profile mcp up -d --build
 docker compose ps
 docker compose logs -f
 docker compose down --remove-orphans
@@ -79,10 +80,17 @@ Or through the root scripts:
 
 ```sh
 pnpm run compose:up
+pnpm run compose:up:full
 pnpm run compose:ps
 pnpm run compose:logs
 pnpm run compose:down
 ```
+
+Profile behavior:
+
+- `compose:up` enables the `mcp` profile so `ib-bridge` starts
+- `compose:up:full` enables both `mcp` and `openclaw`
+- `compose:down` tears down the compose project
 
 Compose override variables can live in a local root `.env`. Start from [`.env.example`](/home/void/projects/etrader/.env.example).
 
