@@ -1,7 +1,27 @@
 from pydantic import BaseModel, Field
 
 
+class InstrumentContractSpec(BaseModel):
+    instrument_type: str = Field(default="stock", pattern="^(stock)$")
+    symbol: str
+    exchange: str = "SMART"
+    currency: str = "USD"
+    primary_exchange: str | None = None
+
+
+class QualifiedContractResponse(BaseModel):
+    instrument_type: str = "stock"
+    con_id: int
+    symbol: str
+    exchange: str
+    primary_exchange: str | None = None
+    currency: str
+    local_symbol: str | None = None
+    trading_class: str | None = None
+
+
 class PositionResponse(BaseModel):
+    instrument_type: str = "stock"
     account: str
     symbol: str
     exchange: str
@@ -31,6 +51,7 @@ class ConnectivityProbeResponse(BaseModel):
 
 
 class QualifiedStockContractResponse(BaseModel):
+    instrument_type: str = "stock"
     con_id: int
     symbol: str
     exchange: str
@@ -41,6 +62,7 @@ class QualifiedStockContractResponse(BaseModel):
 
 
 class MarketQuoteResponse(BaseModel):
+    instrument_type: str = "stock"
     symbol: str
     exchange: str
     currency: str
@@ -52,6 +74,7 @@ class MarketQuoteResponse(BaseModel):
 
 
 class MarketSnapshotResponse(BaseModel):
+    instrument_type: str = "stock"
     symbol: str
     exchange: str
     currency: str
@@ -88,6 +111,7 @@ class AccountRiskSnapshotResponse(BaseModel):
 
 
 class SymbolExposureResponse(BaseModel):
+    instrument_type: str = "stock"
     symbol: str
     exchange: str
     currency: str
@@ -113,6 +137,7 @@ class SymbolConflictResponse(BaseModel):
 
 
 class PortfolioRiskItem(BaseModel):
+    instrument_type: str = "stock"
     symbol: str
     currency: str
     position: float
@@ -133,6 +158,7 @@ class PortfolioRiskSnapshotResponse(BaseModel):
 
 
 class CashSizingRequest(BaseModel):
+    instrument_type: str = Field(default="stock", pattern="^(stock)$")
     symbol: str
     reference_price: float = Field(gt=0)
     budget_type: str = Field(pattern="^(cash|buying_power_percent|net_liquidation_percent)$")
@@ -141,6 +167,7 @@ class CashSizingRequest(BaseModel):
 
 
 class CashSizingResponse(BaseModel):
+    instrument_type: str = "stock"
     symbol: str
     reference_price: float
     budget_type: str
@@ -153,6 +180,7 @@ class CashSizingResponse(BaseModel):
 
 
 class ExecutionGuardrailsResponse(BaseModel):
+    instrument_type: str = "stock"
     symbol: str
     action: str
     quantity: float
@@ -174,6 +202,7 @@ class ExecutionGuardrailsResponse(BaseModel):
 
 
 class OrderAdvisorResponse(BaseModel):
+    instrument_type: str = "stock"
     symbol: str
     action: str
     quantity: float
@@ -331,6 +360,7 @@ class BrokerReconciliationResponse(BaseModel):
 
 
 class PositionSnapshotResponse(BaseModel):
+    instrument_type: str = "stock"
     snapshot_id: str
     symbol: str
     account: str | None = None
@@ -343,6 +373,7 @@ class PositionSnapshotResponse(BaseModel):
 
 
 class ExecutionQualityResponse(BaseModel):
+    instrument_type: str = "stock"
     order_id: str
     symbol: str
     action: str | None = None
@@ -359,6 +390,7 @@ class ExecutionQualityResponse(BaseModel):
 
 
 class ExecutionReportResponse(BaseModel):
+    instrument_type: str = "stock"
     symbol: str
     side: str
     shares: float
@@ -369,6 +401,7 @@ class ExecutionReportResponse(BaseModel):
 
 
 class OrderPreviewRequest(BaseModel):
+    instrument_type: str = Field(default="stock", pattern="^(stock)$")
     symbol: str
     action: str = Field(pattern="^(BUY|SELL)$")
     quantity: float = Field(gt=0)
@@ -392,6 +425,7 @@ class OrderPreviewRequest(BaseModel):
 
 
 class OrderPreviewResponse(BaseModel):
+    instrument_type: str = "stock"
     symbol: str
     action: str
     quantity: float
@@ -406,6 +440,7 @@ class OrderPreviewResponse(BaseModel):
 
 
 class OrderSubmissionResponse(BaseModel):
+    instrument_type: str = "stock"
     order_id: str
     status: str
     symbol: str
