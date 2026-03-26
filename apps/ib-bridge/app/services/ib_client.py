@@ -4,10 +4,11 @@ import math
 from typing import Literal, TypedDict
 from uuid import uuid4
 
-from ib_async import AccountValue, Contract, Fill, IB, Order, Position, Stock, Ticker, Trade
+from ib_async import AccountValue, Contract, Fill, IB, Order, Position, Ticker, Trade
 
 from app.core.config import Settings
 from app.models.trading import InstrumentContractSpec
+from app.services.products.registry import get_product_adapter
 
 
 class QuoteResult(TypedDict):
@@ -34,6 +35,10 @@ class IBGatewayClient:
     @property
     def ib(self) -> IB:
         return self._ib
+
+    @property
+    def logger(self) -> logging.Logger:
+        return self._logger
 
     def is_connected(self) -> bool:
         return self._ib.isConnected()
@@ -226,50 +231,14 @@ class IBGatewayClient:
         currency: str,
         primary_exchange: str | None,
     ) -> Contract:
-        await self.ensure_connected()
-        candidate_specs: list[dict[str, str | None]] = []
-
-        def add_candidate(*, exch: str, primary: str | None) -> None:
-            spec = {"exchange": exch, "primaryExchange": primary}
-            if spec not in candidate_specs:
-                candidate_specs.append(spec)
-
-        add_candidate(exch=exchange, primary=primary_exchange)
-
-        # IB can reject plain SMART qualification for common US equities unless a
-        # primary exchange hint is supplied. Try a small, ordered fallback ladder.
-        if currency.upper() == "USD":
-            for primary in [primary_exchange, "NASDAQ", "ISLAND", "NYSE", "ARCA"]:
-                add_candidate(exch="SMART", primary=primary)
-            for exch in ["NASDAQ", "ISLAND", "NYSE", "ARCA"]:
-                add_candidate(exch=exch, primary=None)
-
-        errors: list[str] = []
-        for spec in candidate_specs:
-            contract = Stock(
+        return await self.qualify_contract(
+            InstrumentContractSpec(
+                instrument_type="stock",
                 symbol=symbol,
-                exchange=spec["exchange"] or exchange,
+                exchange=exchange,
                 currency=currency,
-                primaryExchange=spec["primaryExchange"],
+                primary_exchange=primary_exchange,
             )
-            try:
-                qualified = await self._ib.qualifyContractsAsync(contract)
-            except Exception as exc:
-                errors.append(
-                    f"{contract.exchange}/{getattr(contract, 'primaryExchange', None) or '-'} -> {exc.__class__.__name__}: {exc}"
-                )
-                continue
-
-            qualified_contracts = [item for item in qualified if item is not None]
-            if qualified_contracts:
-                return qualified_contracts[0]
-
-        raise ValueError(
-            f"Unable to qualify contract for symbol={symbol}; tried "
-            + ", ".join(
-                f"{spec['exchange']}/{spec['primaryExchange'] or '-'}" for spec in candidate_specs
-            )
-            + (f"; errors: {' ; '.join(errors)}" if errors else "")
         )
 
     async def stock_quote(
@@ -280,31 +249,18 @@ class IBGatewayClient:
         currency: str,
         primary_exchange: str | None,
     ) -> QuoteResult:
-        qualified_contract = await self.qualify_stock_contract(
-            symbol=symbol,
-            exchange=exchange,
-            currency=currency,
-            primary_exchange=primary_exchange,
+        return await self.market_quote(
+            InstrumentContractSpec(
+                instrument_type="stock",
+                symbol=symbol,
+                exchange=exchange,
+                currency=currency,
+                primary_exchange=primary_exchange,
+            )
         )
-        live_ticker = await self._request_market_data(qualified_contract, market_data_type=1)
-        if self._ticker_has_value(live_ticker):
-            return {"ticker": live_ticker, "data_mode": "live"}
-
-        delayed_ticker = await self._request_delayed_market_data_with_retry(
-            qualified_contract,
-            symbol=symbol,
-        )
-        return {"ticker": delayed_ticker, "data_mode": "delayed"}
 
     async def market_quote(self, spec: InstrumentContractSpec) -> QuoteResult:
-        if spec.instrument_type != "stock":
-            raise ValueError(f"Unsupported instrument_type={spec.instrument_type}")
-        return await self.stock_quote(
-            symbol=spec.symbol,
-            exchange=spec.exchange,
-            currency=spec.currency,
-            primary_exchange=spec.primary_exchange,
-        )
+        return await get_product_adapter(spec.instrument_type).market_quote(self, spec)
 
     async def place_order(
         self,
@@ -447,14 +403,14 @@ class IBGatewayClient:
             return self._ib.placeOrder(trade.contract, order)
         raise ValueError(f"Unable to find open order_id={order_id}")
 
-    async def _request_market_data(self, contract: Contract, *, market_data_type: int) -> Ticker:
+    async def request_market_data(self, contract: Contract, *, market_data_type: int) -> Ticker:
         self._ib.reqMarketDataType(market_data_type)
         ticker = self._ib.reqMktData(contract, "", False, False)
         await asyncio.sleep(1.0)
         self._ib.cancelMktData(contract)
         return ticker
 
-    async def _request_delayed_market_data_with_retry(
+    async def request_delayed_market_data_with_retry(
         self,
         contract: Contract,
         *,
@@ -464,8 +420,8 @@ class IBGatewayClient:
     ) -> Ticker:
         last_ticker: Ticker | None = None
         for attempt in range(1, attempts + 1):
-            last_ticker = await self._request_market_data(contract, market_data_type=3)
-            if self._ticker_has_value(last_ticker):
+            last_ticker = await self.request_market_data(contract, market_data_type=3)
+            if self.ticker_has_value(last_ticker):
                 if attempt > 1:
                     self._logger.info(
                         "Recovered delayed market data for symbol=%s on retry %s/%s",
@@ -489,17 +445,11 @@ class IBGatewayClient:
         )
 
     @staticmethod
-    def _ticker_has_value(ticker: Ticker) -> bool:
+    def ticker_has_value(ticker: Ticker) -> bool:
         for value in (ticker.bid, ticker.ask, ticker.last, ticker.close):
             if isinstance(value, (int, float)) and math.isfinite(float(value)):
                 return True
         return False
+
     async def qualify_contract(self, spec: InstrumentContractSpec) -> Contract:
-        if spec.instrument_type != "stock":
-            raise ValueError(f"Unsupported instrument_type={spec.instrument_type}")
-        return await self.qualify_stock_contract(
-            symbol=spec.symbol,
-            exchange=spec.exchange,
-            currency=spec.currency,
-            primary_exchange=spec.primary_exchange,
-        )
+        return await get_product_adapter(spec.instrument_type).qualify_contract(self, spec)

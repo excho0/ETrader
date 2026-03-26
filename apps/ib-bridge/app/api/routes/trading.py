@@ -23,6 +23,7 @@ from app.models.trading import (
     ExecutionReportResponse,
     ExecutionQualityResponse,
     ExecutionGuardrailsResponse,
+    InstrumentContractSpec,
     MarketSnapshotResponse,
     MarketSessionStatusResponse,
     MarketQuoteResponse,
@@ -40,6 +41,7 @@ from app.models.trading import (
     PositionActionPlanResponse,
     PositionSnapshotResponse,
     PositionResponse,
+    QualifiedContractResponse,
     QualifiedStockContractResponse,
     ReducePositionRequest,
     BrokerReconciliationResponse,
@@ -200,6 +202,27 @@ async def qualify_stock_contract(
     )
 
 
+@router.get("/contracts/{instrument_type}/{symbol}", response_model=QualifiedContractResponse)
+async def qualify_contract(
+    instrument_type: str,
+    symbol: str,
+    primary_exchange: str | None = Query(default=None),
+    currency: str = Query(default="USD"),
+    exchange: str = Query(default="SMART"),
+    trading_service: TradingService = Depends(get_trading_service),
+    _: object = Depends(require_http_scopes(READ_SCOPE)),
+) -> QualifiedContractResponse:
+    return await trading_service.qualify_instrument(
+        InstrumentContractSpec(
+            instrument_type=instrument_type,
+            symbol=symbol,
+            exchange=exchange,
+            currency=currency,
+            primary_exchange=primary_exchange,
+        )
+    )
+
+
 @router.get("/quote/{symbol}", response_model=MarketQuoteResponse)
 async def quote(
     symbol: str,
@@ -217,6 +240,27 @@ async def quote(
     )
 
 
+@router.get("/quote/{instrument_type}/{symbol}", response_model=MarketQuoteResponse)
+async def instrument_quote(
+    instrument_type: str,
+    symbol: str,
+    primary_exchange: str | None = Query(default=None),
+    currency: str = Query(default="USD"),
+    exchange: str = Query(default="SMART"),
+    trading_service: TradingService = Depends(get_trading_service),
+    _: object = Depends(require_http_scopes(READ_SCOPE)),
+) -> MarketQuoteResponse:
+    return await trading_service.get_market_quote(
+        InstrumentContractSpec(
+            instrument_type=instrument_type,
+            symbol=symbol,
+            exchange=exchange,
+            currency=currency,
+            primary_exchange=primary_exchange,
+        )
+    )
+
+
 @router.get("/market-snapshot/{symbol}", response_model=MarketSnapshotResponse)
 async def market_snapshot(
     symbol: str,
@@ -231,6 +275,27 @@ async def market_snapshot(
         exchange=exchange,
         currency=currency,
         primary_exchange=primary_exchange,
+    )
+
+
+@router.get("/market-snapshot/{instrument_type}/{symbol}", response_model=MarketSnapshotResponse)
+async def instrument_market_snapshot(
+    instrument_type: str,
+    symbol: str,
+    primary_exchange: str | None = Query(default=None),
+    currency: str = Query(default="USD"),
+    exchange: str = Query(default="SMART"),
+    trading_service: TradingService = Depends(get_trading_service),
+    _: object = Depends(require_http_scopes(READ_SCOPE)),
+) -> MarketSnapshotResponse:
+    return await trading_service.get_instrument_snapshot(
+        InstrumentContractSpec(
+            instrument_type=instrument_type,
+            symbol=symbol,
+            exchange=exchange,
+            currency=currency,
+            primary_exchange=primary_exchange,
+        )
     )
 
 
