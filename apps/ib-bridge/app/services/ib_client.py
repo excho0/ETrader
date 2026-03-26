@@ -263,6 +263,7 @@ class IBGatewayClient:
     async def place_order(
         self,
         *,
+        instrument_type: str = "stock",
         symbol: str,
         action: str,
         quantity: float,
@@ -274,10 +275,10 @@ class IBGatewayClient:
         stop_price: float | None,
         time_in_force: str,
     ) -> Trade:
-        return await get_product_adapter("stock").place_order(
+        return await get_product_adapter(instrument_type).place_order(
             self,
             InstrumentContractSpec(
-                instrument_type="stock",
+                instrument_type=instrument_type,
                 symbol=symbol,
                 exchange=exchange,
                 currency=currency,
@@ -294,6 +295,7 @@ class IBGatewayClient:
     async def place_bracket_order(
         self,
         *,
+        instrument_type: str = "stock",
         symbol: str,
         action: str,
         quantity: float,
@@ -305,10 +307,10 @@ class IBGatewayClient:
         stop_loss_price: float,
         time_in_force: str,
     ) -> list[Trade]:
-        return await get_product_adapter("stock").place_bracket_order(
+        return await get_product_adapter(instrument_type).place_bracket_order(
             self,
             InstrumentContractSpec(
-                instrument_type="stock",
+                instrument_type=instrument_type,
                 symbol=symbol,
                 exchange=exchange,
                 currency=currency,
@@ -325,6 +327,7 @@ class IBGatewayClient:
     async def place_position_exit_oca(
         self,
         *,
+        instrument_type: str = "stock",
         symbol: str,
         quantity: float,
         exchange: str,
@@ -334,10 +337,10 @@ class IBGatewayClient:
         stop_loss_price: float,
         time_in_force: str,
     ) -> tuple[str, Trade, Trade]:
-        return await get_product_adapter("stock").place_position_exit_oca(
+        return await get_product_adapter(instrument_type).place_position_exit_oca(
             self,
             InstrumentContractSpec(
-                instrument_type="stock",
+                instrument_type=instrument_type,
                 symbol=symbol,
                 exchange=exchange,
                 currency=currency,

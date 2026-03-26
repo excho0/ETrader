@@ -672,6 +672,7 @@ async def market_session_status() -> MarketSessionStatusResponse:
 )
 async def symbol_exposure(
     symbol: str,
+    instrument_type: str = "stock",
     exchange: str = "SMART",
     currency: str = "USD",
     primary_exchange: str | None = None,
@@ -680,6 +681,7 @@ async def symbol_exposure(
     require_mcp_scopes(READ_SCOPE)
     async with current_trading_service() as service:
         return await service.get_symbol_exposure(
+            instrument_type=instrument_type,
             symbol=symbol,
             exchange=exchange,
             currency=currency,
@@ -699,6 +701,7 @@ async def order_conflicts(
     symbol: str,
     action: str,
     quantity: float,
+    instrument_type: str = "stock",
     exchange: str = "SMART",
     currency: str = "USD",
     primary_exchange: str | None = None,
@@ -706,6 +709,7 @@ async def order_conflicts(
     require_mcp_scopes(READ_SCOPE)
     async with current_trading_service() as service:
         return await service.get_order_conflicts(
+            instrument_type=instrument_type,
             symbol=symbol,
             action=action,
             quantity=quantity,
@@ -736,6 +740,7 @@ async def cash_sizing_advisor(
     reference_price: float,
     budget_type: str,
     budget_value: float,
+    instrument_type: str = "stock",
     current_position: float = 0,
 ) -> CashSizingResponse:
     """Convert a sizing budget into a maximum whole-share quantity using current account metrics."""
@@ -743,6 +748,7 @@ async def cash_sizing_advisor(
     async with current_trading_service() as service:
         return await service.get_cash_sizing(
             CashSizingRequest(
+                instrument_type=instrument_type,
                 symbol=symbol,
                 reference_price=reference_price,
                 budget_type=budget_type,
@@ -773,6 +779,7 @@ async def preview_market_order(
     symbol: str,
     action: str,
     quantity: float,
+    instrument_type: str = "stock",
     exchange: str = "SMART",
     currency: str = "USD",
     primary_exchange: str | None = None,
@@ -782,6 +789,7 @@ async def preview_market_order(
     async with current_trading_service() as service:
         return await service.preview_order(
             OrderPreviewRequest(
+                instrument_type=instrument_type,
                 symbol=symbol,
                 action=action,
                 quantity=quantity,
@@ -806,6 +814,7 @@ async def preview_open_position(
     symbol: str,
     side: str,
     quantity: float,
+    instrument_type: str = "stock",
     exchange: str = "SMART",
     currency: str = "USD",
     primary_exchange: str | None = None,
@@ -823,6 +832,7 @@ async def preview_open_position(
     async with current_trading_service() as service:
         return await service.preview_open_position(
             OpenPositionRequest(
+                instrument_type=instrument_type,
                 symbol=symbol,
                 side=side,
                 quantity=quantity,
@@ -854,6 +864,7 @@ async def submit_open_position(
     symbol: str,
     side: str,
     quantity: float,
+    instrument_type: str = "stock",
     exchange: str = "SMART",
     currency: str = "USD",
     primary_exchange: str | None = None,
@@ -871,6 +882,7 @@ async def submit_open_position(
     async with current_trading_service() as service:
         return await service.submit_open_position(
             OpenPositionRequest(
+                instrument_type=instrument_type,
                 symbol=symbol,
                 side=side,
                 quantity=quantity,
@@ -901,6 +913,7 @@ async def submit_open_position(
 async def preview_reduce_position(
     symbol: str,
     quantity: float,
+    instrument_type: str = "stock",
     exchange: str = "SMART",
     currency: str = "USD",
     primary_exchange: str | None = None,
@@ -911,6 +924,7 @@ async def preview_reduce_position(
     async with current_trading_service() as service:
         return await service.preview_reduce_position(
             ReducePositionRequest(
+                instrument_type=instrument_type,
                 symbol=symbol,
                 quantity=quantity,
                 exchange=exchange,
@@ -933,6 +947,7 @@ async def preview_reduce_position(
 async def submit_reduce_position(
     symbol: str,
     quantity: float,
+    instrument_type: str = "stock",
     exchange: str = "SMART",
     currency: str = "USD",
     primary_exchange: str | None = None,
@@ -943,6 +958,7 @@ async def submit_reduce_position(
     async with current_trading_service() as service:
         return await service.submit_reduce_position(
             ReducePositionRequest(
+                instrument_type=instrument_type,
                 symbol=symbol,
                 quantity=quantity,
                 exchange=exchange,
@@ -973,6 +989,7 @@ async def execution_guardrails(
     symbol: str,
     action: str,
     quantity: float,
+    instrument_type: str = "stock",
     exchange: str = "SMART",
     currency: str = "USD",
     primary_exchange: str | None = None,
@@ -990,6 +1007,7 @@ async def execution_guardrails(
     async with current_trading_service() as service:
         return await service.get_execution_guardrails(
             OrderPreviewRequest(
+                instrument_type=instrument_type,
                 symbol=symbol,
                 action=action,
                 quantity=quantity,
@@ -1028,6 +1046,7 @@ async def order_advisor(
     symbol: str,
     action: str,
     quantity: float,
+    instrument_type: str = "stock",
     exchange: str = "SMART",
     currency: str = "USD",
     primary_exchange: str | None = None,
@@ -1045,6 +1064,7 @@ async def order_advisor(
     async with current_trading_service() as service:
         return await service.advise_order(
             OrderPreviewRequest(
+                instrument_type=instrument_type,
                 symbol=symbol,
                 action=action,
                 quantity=quantity,
@@ -1075,6 +1095,7 @@ async def trade_candidate_evaluation(
     symbol: str,
     action: str,
     quantity: float,
+    instrument_type: str = "stock",
     exchange: str = "SMART",
     currency: str = "USD",
     primary_exchange: str | None = None,
@@ -1091,6 +1112,7 @@ async def trade_candidate_evaluation(
     async with current_trading_service() as service:
         return await service.evaluate_trade_candidate(
             OrderPreviewRequest(
+                instrument_type=instrument_type,
                 symbol=symbol,
                 action=action,
                 quantity=quantity,
@@ -1132,6 +1154,7 @@ async def submit_order(
     symbol: str,
     action: str,
     quantity: float,
+    instrument_type: str = "stock",
     exchange: str = "SMART",
     currency: str = "USD",
     primary_exchange: str | None = None,
@@ -1149,6 +1172,7 @@ async def submit_order(
     async with current_trading_service() as service:
         return await service.submit_order(
             OrderPreviewRequest(
+                instrument_type=instrument_type,
                 symbol=symbol,
                 action=action,
                 quantity=quantity,
@@ -1179,6 +1203,7 @@ async def create_approval_request(
     symbol: str,
     action: str,
     quantity: float,
+    instrument_type: str = "stock",
     exchange: str = "SMART",
     currency: str = "USD",
     primary_exchange: str | None = None,
@@ -1195,6 +1220,7 @@ async def create_approval_request(
     async with current_trading_service() as service:
         return await service.create_approval_request(
             OrderPreviewRequest(
+                instrument_type=instrument_type,
                 symbol=symbol,
                 action=action,
                 quantity=quantity,
@@ -1321,6 +1347,7 @@ async def flatten_all_positions() -> list[OrderSubmissionResponse]:
 )
 async def close_symbol_position(
     symbol: str,
+    instrument_type: str = "stock",
     exchange: str = "SMART",
     currency: str = "USD",
     primary_exchange: str | None = None,
@@ -1331,6 +1358,7 @@ async def close_symbol_position(
     async with current_trading_service() as service:
         return await service.close_symbol_position(
             ClosePositionRequest(
+                instrument_type=instrument_type,
                 symbol=symbol,
                 exchange=exchange,
                 currency=currency,
