@@ -46,6 +46,7 @@ from app.models.trading import (
     ExecutionGuardrailsResponse,
     ExecutionReportResponse,
     ExecutionQualityResponse,
+    InstrumentContractSpec,
     MarketQuoteResponse,
     MarketSnapshotResponse,
     MarketSessionStatusResponse,
@@ -64,6 +65,7 @@ from app.models.trading import (
     PositionSnapshotResponse,
     PositionActionPlanResponse,
     PositionResponse,
+    QualifiedContractResponse,
     QualifiedStockContractResponse,
     ReducePositionRequest,
     BrokerReconciliationResponse,
@@ -962,14 +964,25 @@ class TradingService:
         currency: str,
         primary_exchange: str | None,
     ) -> QualifiedStockContractResponse:
-        async with self._request_lock:
-            contract = await self._client.qualify_stock_contract(
+        response = await self.qualify_instrument(
+            InstrumentContractSpec(
+                instrument_type="stock",
                 symbol=symbol,
                 exchange=exchange,
                 currency=currency,
                 primary_exchange=primary_exchange,
             )
-            return QualifiedStockContractResponse(
+        )
+        return QualifiedStockContractResponse(**response.model_dump())
+
+    async def qualify_instrument(
+        self,
+        spec: InstrumentContractSpec,
+    ) -> QualifiedContractResponse:
+        async with self._request_lock:
+            contract = await self._client.qualify_contract(spec)
+            return QualifiedContractResponse(
+                instrument_type=spec.instrument_type,
                 con_id=contract.conId,
                 symbol=contract.symbol,
                 exchange=contract.exchange,
@@ -987,24 +1000,39 @@ class TradingService:
         currency: str,
         primary_exchange: str | None,
     ) -> MarketQuoteResponse:
-        cache_key = f"stock_quote:{symbol}:{exchange}:{currency}:{primary_exchange or '-'}"
+        return await self.get_market_quote(
+            InstrumentContractSpec(
+                instrument_type="stock",
+                symbol=symbol,
+                exchange=exchange,
+                currency=currency,
+                primary_exchange=primary_exchange,
+            )
+        )
 
+    def _instrument_cache_key(self, prefix: str, spec: InstrumentContractSpec) -> str:
+        return (
+            f"{prefix}:{spec.instrument_type}:{spec.symbol}:{spec.exchange}:"
+            f"{spec.currency}:{spec.primary_exchange or '-'}"
+        )
+
+    async def get_market_quote(
+        self,
+        spec: InstrumentContractSpec,
+    ) -> MarketQuoteResponse:
+        cache_key = self._instrument_cache_key("market_quote", spec)
         async def factory() -> MarketQuoteResponse:
             async with self._request_lock:
                 try:
-                    quote = await self._client.stock_quote(
-                        symbol=symbol,
-                        exchange=exchange,
-                        currency=currency,
-                        primary_exchange=primary_exchange,
-                    )
+                    quote = await self._client.market_quote(spec)
                 except ValueError as exc:
                     raise TradingValidationError(str(exc)) from exc
 
                 return MarketQuoteResponse(
-                    symbol=symbol,
-                    exchange=exchange,
-                    currency=currency,
+                    instrument_type=spec.instrument_type,
+                    symbol=spec.symbol,
+                    exchange=spec.exchange,
+                    currency=spec.currency,
                     data_mode=str(quote["data_mode"]),
                     bid=self._normalize_optional_float(quote["ticker"].bid),
                     ask=self._normalize_optional_float(quote["ticker"].ask),
@@ -1022,21 +1050,27 @@ class TradingService:
         currency: str,
         primary_exchange: str | None,
     ) -> MarketSnapshotResponse:
-        cache_key = f"market_snapshot:{symbol}:{exchange}:{currency}:{primary_exchange or '-'}"
+        return await self.get_instrument_snapshot(
+            InstrumentContractSpec(
+                instrument_type="stock",
+                symbol=symbol,
+                exchange=exchange,
+                currency=currency,
+                primary_exchange=primary_exchange,
+            )
+        )
 
+    async def get_instrument_snapshot(
+        self,
+        spec: InstrumentContractSpec,
+    ) -> MarketSnapshotResponse:
+        cache_key = self._instrument_cache_key("market_snapshot", spec)
         async def factory() -> MarketSnapshotResponse:
-            async with self._request_lock:
-                quote = await self._client.stock_quote(
-                    symbol=symbol,
-                    exchange=exchange,
-                    currency=currency,
-                    primary_exchange=primary_exchange,
-                )
-            ticker = quote["ticker"]
-            bid = self._normalize_optional_float(ticker.bid)
-            ask = self._normalize_optional_float(ticker.ask)
-            last = self._normalize_optional_float(ticker.last)
-            close = self._normalize_optional_float(ticker.close)
+            quote = await self.get_market_quote(spec)
+            bid = quote.bid
+            ask = quote.ask
+            last = quote.last
+            close = quote.close
             mid_price = self._mid_price(bid, ask)
             spread = ask - bid if bid is not None and ask is not None else None
             spread_bps = (spread / mid_price) * 10000 if spread is not None and mid_price not in (None, 0) else None
@@ -1044,11 +1078,12 @@ class TradingService:
             day_change = reference_price - close if reference_price is not None and close is not None else None
             day_change_percent = (day_change / close) * 100 if day_change is not None and close not in (None, 0) else None
             return MarketSnapshotResponse(
-                symbol=symbol,
-                exchange=exchange,
-                currency=currency,
-                primary_exchange=primary_exchange,
-                data_mode=str(quote["data_mode"]),
+                instrument_type=spec.instrument_type,
+                symbol=spec.symbol,
+                exchange=spec.exchange,
+                currency=spec.currency,
+                primary_exchange=spec.primary_exchange,
+                data_mode=quote.data_mode,
                 bid=bid,
                 ask=ask,
                 last=last,
@@ -1060,7 +1095,7 @@ class TradingService:
                 day_change_percent=day_change_percent,
                 has_two_sided_market=bid is not None and ask is not None,
                 quote_quality=self._quote_quality(
-                    data_mode=str(quote["data_mode"]),
+                    data_mode=quote.data_mode,
                     bid=bid,
                     ask=ask,
                     spread_bps=spread_bps,

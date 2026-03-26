@@ -7,6 +7,7 @@ from uuid import uuid4
 from ib_async import AccountValue, Contract, Fill, IB, Order, Position, Stock, Ticker, Trade
 
 from app.core.config import Settings
+from app.models.trading import InstrumentContractSpec
 
 
 class QuoteResult(TypedDict):
@@ -295,6 +296,16 @@ class IBGatewayClient:
         )
         return {"ticker": delayed_ticker, "data_mode": "delayed"}
 
+    async def market_quote(self, spec: InstrumentContractSpec) -> QuoteResult:
+        if spec.instrument_type != "stock":
+            raise ValueError(f"Unsupported instrument_type={spec.instrument_type}")
+        return await self.stock_quote(
+            symbol=spec.symbol,
+            exchange=spec.exchange,
+            currency=spec.currency,
+            primary_exchange=spec.primary_exchange,
+        )
+
     async def place_order(
         self,
         *,
@@ -483,3 +494,12 @@ class IBGatewayClient:
             if isinstance(value, (int, float)) and math.isfinite(float(value)):
                 return True
         return False
+    async def qualify_contract(self, spec: InstrumentContractSpec) -> Contract:
+        if spec.instrument_type != "stock":
+            raise ValueError(f"Unsupported instrument_type={spec.instrument_type}")
+        return await self.qualify_stock_contract(
+            symbol=spec.symbol,
+            exchange=spec.exchange,
+            currency=spec.currency,
+            primary_exchange=spec.primary_exchange,
+        )
