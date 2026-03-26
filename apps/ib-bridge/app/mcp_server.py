@@ -36,6 +36,7 @@ from app.models.trading import (
     ExecutionReportResponse,
     ExecutionQualityResponse,
     ExecutionGuardrailsResponse,
+    InstrumentContractSpec,
     MarketSnapshotResponse,
     MarketSessionStatusResponse,
     MarketQuoteResponse,
@@ -53,6 +54,7 @@ from app.models.trading import (
     PositionActionPlanResponse,
     PositionSnapshotResponse,
     PositionResponse,
+    QualifiedContractResponse,
     QualifiedStockContractResponse,
     ReducePositionRequest,
     BrokerReconciliationResponse,
@@ -435,6 +437,37 @@ async def execution_quality(order_id: str) -> ExecutionQualityResponse:
 
 
 @mcp.tool(
+    name="trading_qualify_contract",
+    title="Qualify Instrument Contract",
+    description=(
+        "Resolve and validate a contract using the current product adapter. This is the "
+        "generic contract entrypoint for future multi-product expansion. Today it supports stocks."
+    ),
+    annotations=READ_ONLY,
+    structured_output=True,
+    meta={"category": "contracts", "risk_tier": "safe", "side_effects": "none"},
+)
+async def qualify_contract(
+    instrument_type: str = "stock",
+    symbol: str = "",
+    exchange: str = "SMART",
+    currency: str = "USD",
+    primary_exchange: str | None = None,
+) -> QualifiedContractResponse:
+    require_mcp_scopes(READ_SCOPE)
+    async with current_trading_service() as service:
+        return await service.qualify_instrument(
+            InstrumentContractSpec(
+                instrument_type=instrument_type,
+                symbol=symbol,
+                exchange=exchange,
+                currency=currency,
+                primary_exchange=primary_exchange,
+            )
+        )
+
+
+@mcp.tool(
     name="trading_qualify_stock_contract",
     title="Qualify Stock Contract",
     description=(
@@ -464,6 +497,42 @@ async def qualify_stock_contract(
             exchange=exchange,
             currency=currency,
             primary_exchange=primary_exchange,
+        )
+
+
+@mcp.tool(
+    name="trading_market_quote",
+    title="Instrument Quote",
+    description=(
+        "Fetch a market quote using the current product adapter. This is the generic quote "
+        "entrypoint for future multi-product expansion. Today it supports stocks."
+    ),
+    annotations=READ_ONLY,
+    structured_output=True,
+    meta={
+        "category": "market_data",
+        "risk_tier": "safe",
+        "side_effects": "none",
+        "fallback_behavior": "live_then_delayed",
+    },
+)
+async def market_quote(
+    instrument_type: str = "stock",
+    symbol: str = "",
+    exchange: str = "SMART",
+    currency: str = "USD",
+    primary_exchange: str | None = None,
+) -> MarketQuoteResponse:
+    require_mcp_scopes(READ_SCOPE)
+    async with current_trading_service() as service:
+        return await service.get_market_quote(
+            InstrumentContractSpec(
+                instrument_type=instrument_type,
+                symbol=symbol,
+                exchange=exchange,
+                currency=currency,
+                primary_exchange=primary_exchange,
+            )
         )
 
 
@@ -498,6 +567,42 @@ async def stock_quote(
             exchange=exchange,
             currency=currency,
             primary_exchange=primary_exchange,
+        )
+
+
+@mcp.tool(
+    name="trading_instrument_snapshot",
+    title="Instrument Snapshot",
+    description=(
+        "Return a decision-ready market snapshot using the current product adapter. This is "
+        "the generic snapshot entrypoint for future multi-product expansion. Today it supports stocks."
+    ),
+    annotations=READ_ONLY,
+    structured_output=True,
+    meta={
+        "category": "market_data",
+        "risk_tier": "safe",
+        "side_effects": "none",
+        "fallback_behavior": "live_then_delayed",
+    },
+)
+async def instrument_snapshot(
+    instrument_type: str = "stock",
+    symbol: str = "",
+    exchange: str = "SMART",
+    currency: str = "USD",
+    primary_exchange: str | None = None,
+) -> MarketSnapshotResponse:
+    require_mcp_scopes(READ_SCOPE)
+    async with current_trading_service() as service:
+        return await service.get_instrument_snapshot(
+            InstrumentContractSpec(
+                instrument_type=instrument_type,
+                symbol=symbol,
+                exchange=exchange,
+                currency=currency,
+                primary_exchange=primary_exchange,
+            )
         )
 
 
