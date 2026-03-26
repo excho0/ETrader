@@ -71,17 +71,23 @@ _active_trading_service: TradingService | None = None
 _active_trading_service_lock = asyncio.Lock()
 logger = logging.getLogger("uvicorn.app.mcp")
 
+auth_settings = (
+    AuthSettings(
+        issuer_url=settings.mcp_http_issuer_url,
+        resource_server_url=settings.mcp_http_resource_server_url,
+        required_scopes=[READ_SCOPE],
+    )
+    if settings.auth_enabled
+    else None
+)
+
 mcp = FastMCP(
     "etrader-trading",
     host=settings.mcp_http_host,
     port=settings.mcp_http_port,
     streamable_http_path="/",
-    auth=AuthSettings(
-        issuer_url=settings.mcp_http_issuer_url,
-        resource_server_url=settings.mcp_http_resource_server_url,
-        required_scopes=[READ_SCOPE],
-    ),
-    token_verifier=build_token_verifier(settings),
+    auth=auth_settings,
+    token_verifier=build_token_verifier(settings) if settings.auth_enabled else None,
 )
 
 
