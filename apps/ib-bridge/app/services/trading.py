@@ -265,8 +265,19 @@ class TradingService:
     async def readiness(self) -> ReadinessResponse:
         connected = self._client.is_connected()
         accounts: list[str] = []
+        if not connected:
+            try:
+                await self.ensure_connected()
+            except Exception:
+                connected = self._client.is_connected()
+            else:
+                connected = self._client.is_connected()
+
         if connected:
-            accounts = await self._client.managed_accounts()
+            try:
+                accounts = await self._client.managed_accounts()
+            except Exception as exc:
+                self._logger.warning("Readiness check connected but managed_accounts failed: %s", exc)
 
         status = "ready" if connected else "degraded"
         return ReadinessResponse(
