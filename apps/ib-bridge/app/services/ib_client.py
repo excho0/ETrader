@@ -289,12 +289,10 @@ class IBGatewayClient:
         if self._ticker_has_value(live_ticker):
             return {"ticker": live_ticker, "data_mode": "live"}
 
-        delayed_ticker = await self._request_market_data(qualified_contract, market_data_type=3)
-        if not self._ticker_has_value(delayed_ticker):
-            raise ValueError(
-                f"Market data returned no usable prices for symbol={symbol} "
-                f"(exchange={qualified_contract.exchange}, primaryExchange={getattr(qualified_contract, 'primaryExchange', None)})"
-            )
+        delayed_ticker = await self._request_delayed_market_data_with_retry(
+            qualified_contract,
+            symbol=symbol,
+        )
         return {"ticker": delayed_ticker, "data_mode": "delayed"}
 
     async def place_order(
@@ -444,6 +442,40 @@ class IBGatewayClient:
         await asyncio.sleep(1.0)
         self._ib.cancelMktData(contract)
         return ticker
+
+    async def _request_delayed_market_data_with_retry(
+        self,
+        contract: Contract,
+        *,
+        symbol: str,
+        attempts: int = 3,
+        backoff_seconds: float = 0.35,
+    ) -> Ticker:
+        last_ticker: Ticker | None = None
+        for attempt in range(1, attempts + 1):
+            last_ticker = await self._request_market_data(contract, market_data_type=3)
+            if self._ticker_has_value(last_ticker):
+                if attempt > 1:
+                    self._logger.info(
+                        "Recovered delayed market data for symbol=%s on retry %s/%s",
+                        symbol,
+                        attempt,
+                        attempts,
+                    )
+                return last_ticker
+            if attempt < attempts:
+                self._logger.warning(
+                    "Empty delayed market data for symbol=%s on attempt %s/%s; retrying",
+                    symbol,
+                    attempt,
+                    attempts,
+                )
+                await asyncio.sleep(backoff_seconds * attempt)
+
+        raise ValueError(
+            f"Market data returned no usable prices for symbol={symbol} "
+            f"(exchange={contract.exchange}, primaryExchange={getattr(contract, 'primaryExchange', None)})"
+        )
 
     @staticmethod
     def _ticker_has_value(ticker: Ticker) -> bool:
