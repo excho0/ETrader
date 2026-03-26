@@ -199,17 +199,50 @@ class IBGatewayClient:
         primary_exchange: str | None,
     ) -> Contract:
         await self.ensure_connected()
-        contract = Stock(
-            symbol=symbol,
-            exchange=exchange,
-            currency=currency,
-            primaryExchange=primary_exchange,
+        candidate_specs: list[dict[str, str | None]] = []
+
+        def add_candidate(*, exch: str, primary: str | None) -> None:
+            spec = {"exchange": exch, "primaryExchange": primary}
+            if spec not in candidate_specs:
+                candidate_specs.append(spec)
+
+        add_candidate(exch=exchange, primary=primary_exchange)
+
+        # IB can reject plain SMART qualification for common US equities unless a
+        # primary exchange hint is supplied. Try a small, ordered fallback ladder.
+        if currency.upper() == "USD":
+            for primary in [primary_exchange, "NASDAQ", "ISLAND", "NYSE", "ARCA"]:
+                add_candidate(exch="SMART", primary=primary)
+            for exch in ["NASDAQ", "ISLAND", "NYSE", "ARCA"]:
+                add_candidate(exch=exch, primary=None)
+
+        errors: list[str] = []
+        for spec in candidate_specs:
+            contract = Stock(
+                symbol=symbol,
+                exchange=spec["exchange"] or exchange,
+                currency=currency,
+                primaryExchange=spec["primaryExchange"],
+            )
+            try:
+                qualified = await self._ib.qualifyContractsAsync(contract)
+            except Exception as exc:
+                errors.append(
+                    f"{contract.exchange}/{getattr(contract, 'primaryExchange', None) or '-'} -> {exc.__class__.__name__}: {exc}"
+                )
+                continue
+
+            qualified_contracts = [item for item in qualified if item is not None]
+            if qualified_contracts:
+                return qualified_contracts[0]
+
+        raise ValueError(
+            f"Unable to qualify contract for symbol={symbol}; tried "
+            + ", ".join(
+                f"{spec['exchange']}/{spec['primaryExchange'] or '-'}" for spec in candidate_specs
+            )
+            + (f"; errors: {' ; '.join(errors)}" if errors else "")
         )
-        qualified = await self._ib.qualifyContractsAsync(contract)
-        qualified_contracts = [item for item in qualified if item is not None]
-        if not qualified_contracts:
-            raise ValueError(f"Unable to qualify contract for symbol={symbol}")
-        return qualified_contracts[0]
 
     async def stock_quote(
         self,
