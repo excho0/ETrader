@@ -1,11 +1,18 @@
-SUPPORTED_INSTRUMENT_TYPES: tuple[str, ...] = ("stock",)
+from enum import StrEnum
 
 
-def ensure_supported_instrument_type(instrument_type: str) -> str:
-    normalized = instrument_type.strip().lower()
+class InstrumentType(StrEnum):
+    STOCK = "stock"
+
+
+SUPPORTED_INSTRUMENT_TYPES: tuple[str, ...] = tuple(item.value for item in InstrumentType)
+
+
+def ensure_supported_instrument_type(instrument_type: str | InstrumentType) -> InstrumentType:
+    normalized = str(instrument_type).strip().lower()
     if normalized not in SUPPORTED_INSTRUMENT_TYPES:
         supported = ", ".join(SUPPORTED_INSTRUMENT_TYPES)
         raise ValueError(
             f"Unsupported instrument_type={instrument_type!r}. Supported instrument types: {supported}"
         )
-    return normalized
+    return InstrumentType(normalized)

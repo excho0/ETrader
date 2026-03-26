@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 
 from app.api.deps import get_trading_service
+from app.core.instrument_types import InstrumentType
 from app.core.security import (
     DIAGNOSTICS_SCOPE,
     EXECUTE_SCOPE,
@@ -213,7 +214,7 @@ async def qualify_stock_contract(
 
 @router.get("/contracts/{instrument_type}/{symbol}", response_model=QualifiedContractResponse)
 async def qualify_contract(
-    instrument_type: str,
+    instrument_type: InstrumentType,
     symbol: str,
     primary_exchange: str | None = Query(default=None),
     currency: str = Query(default="USD"),
@@ -251,7 +252,7 @@ async def quote(
 
 @router.get("/quote/{instrument_type}/{symbol}", response_model=MarketQuoteResponse)
 async def instrument_quote(
-    instrument_type: str,
+    instrument_type: InstrumentType,
     symbol: str,
     primary_exchange: str | None = Query(default=None),
     currency: str = Query(default="USD"),
@@ -289,7 +290,7 @@ async def market_snapshot(
 
 @router.get("/market-snapshot/{instrument_type}/{symbol}", response_model=MarketSnapshotResponse)
 async def instrument_market_snapshot(
-    instrument_type: str,
+    instrument_type: InstrumentType,
     symbol: str,
     primary_exchange: str | None = Query(default=None),
     currency: str = Query(default="USD"),
@@ -336,7 +337,7 @@ async def symbol_exposure(
 
 @router.get("/exposure/{instrument_type}/{symbol}", response_model=SymbolExposureResponse)
 async def instrument_symbol_exposure(
-    instrument_type: str,
+    instrument_type: InstrumentType,
     symbol: str,
     primary_exchange: str | None = Query(default=None),
     currency: str = Query(default="USD"),

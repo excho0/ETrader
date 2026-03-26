@@ -11,6 +11,7 @@ from mcp.types import ToolAnnotations
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.core.config import get_settings
+from app.core.instrument_types import InstrumentType
 from app.core.logging import configure_logging
 from app.core.security import (
     DIAGNOSTICS_SCOPE,
@@ -467,7 +468,7 @@ async def execution_quality(order_id: str) -> ExecutionQualityResponse:
     meta={"category": "contracts", "risk_tier": "safe", "side_effects": "none"},
 )
 async def qualify_contract(
-    instrument_type: str = "stock",
+    instrument_type: InstrumentType = InstrumentType.STOCK,
     symbol: str = "",
     exchange: str = "SMART",
     currency: str = "USD",
@@ -536,7 +537,7 @@ async def qualify_stock_contract(
     },
 )
 async def market_quote(
-    instrument_type: str = "stock",
+    instrument_type: InstrumentType = InstrumentType.STOCK,
     symbol: str = "",
     exchange: str = "SMART",
     currency: str = "USD",
@@ -606,7 +607,7 @@ async def stock_quote(
     },
 )
 async def instrument_snapshot(
-    instrument_type: str = "stock",
+    instrument_type: InstrumentType = InstrumentType.STOCK,
     symbol: str = "",
     exchange: str = "SMART",
     currency: str = "USD",
@@ -691,7 +692,7 @@ async def market_session_status() -> MarketSessionStatusResponse:
 )
 async def symbol_exposure(
     symbol: str,
-    instrument_type: str = "stock",
+    instrument_type: InstrumentType = InstrumentType.STOCK,
     exchange: str = "SMART",
     currency: str = "USD",
     primary_exchange: str | None = None,
@@ -720,7 +721,7 @@ async def order_conflicts(
     symbol: str,
     action: str,
     quantity: float,
-    instrument_type: str = "stock",
+    instrument_type: InstrumentType = InstrumentType.STOCK,
     exchange: str = "SMART",
     currency: str = "USD",
     primary_exchange: str | None = None,
@@ -759,7 +760,7 @@ async def cash_sizing_advisor(
     reference_price: float,
     budget_type: str,
     budget_value: float,
-    instrument_type: str = "stock",
+    instrument_type: InstrumentType = InstrumentType.STOCK,
     current_position: float = 0,
 ) -> CashSizingResponse:
     """Convert a sizing budget into a maximum whole-share quantity using current account metrics."""
@@ -798,7 +799,7 @@ async def preview_market_order(
     symbol: str,
     action: str,
     quantity: float,
-    instrument_type: str = "stock",
+    instrument_type: InstrumentType = InstrumentType.STOCK,
     exchange: str = "SMART",
     currency: str = "USD",
     primary_exchange: str | None = None,
@@ -833,7 +834,7 @@ async def preview_open_position(
     symbol: str,
     side: str,
     quantity: float,
-    instrument_type: str = "stock",
+    instrument_type: InstrumentType = InstrumentType.STOCK,
     exchange: str = "SMART",
     currency: str = "USD",
     primary_exchange: str | None = None,
@@ -883,7 +884,7 @@ async def submit_open_position(
     symbol: str,
     side: str,
     quantity: float,
-    instrument_type: str = "stock",
+    instrument_type: InstrumentType = InstrumentType.STOCK,
     exchange: str = "SMART",
     currency: str = "USD",
     primary_exchange: str | None = None,
@@ -932,7 +933,7 @@ async def submit_open_position(
 async def preview_reduce_position(
     symbol: str,
     quantity: float,
-    instrument_type: str = "stock",
+    instrument_type: InstrumentType = InstrumentType.STOCK,
     exchange: str = "SMART",
     currency: str = "USD",
     primary_exchange: str | None = None,
@@ -966,7 +967,7 @@ async def preview_reduce_position(
 async def submit_reduce_position(
     symbol: str,
     quantity: float,
-    instrument_type: str = "stock",
+    instrument_type: InstrumentType = InstrumentType.STOCK,
     exchange: str = "SMART",
     currency: str = "USD",
     primary_exchange: str | None = None,
@@ -1008,7 +1009,7 @@ async def execution_guardrails(
     symbol: str,
     action: str,
     quantity: float,
-    instrument_type: str = "stock",
+    instrument_type: InstrumentType = InstrumentType.STOCK,
     exchange: str = "SMART",
     currency: str = "USD",
     primary_exchange: str | None = None,
@@ -1065,7 +1066,7 @@ async def order_advisor(
     symbol: str,
     action: str,
     quantity: float,
-    instrument_type: str = "stock",
+    instrument_type: InstrumentType = InstrumentType.STOCK,
     exchange: str = "SMART",
     currency: str = "USD",
     primary_exchange: str | None = None,
@@ -1114,7 +1115,7 @@ async def trade_candidate_evaluation(
     symbol: str,
     action: str,
     quantity: float,
-    instrument_type: str = "stock",
+    instrument_type: InstrumentType = InstrumentType.STOCK,
     exchange: str = "SMART",
     currency: str = "USD",
     primary_exchange: str | None = None,
@@ -1173,7 +1174,7 @@ async def submit_order(
     symbol: str,
     action: str,
     quantity: float,
-    instrument_type: str = "stock",
+    instrument_type: InstrumentType = InstrumentType.STOCK,
     exchange: str = "SMART",
     currency: str = "USD",
     primary_exchange: str | None = None,
@@ -1222,7 +1223,7 @@ async def create_approval_request(
     symbol: str,
     action: str,
     quantity: float,
-    instrument_type: str = "stock",
+    instrument_type: InstrumentType = InstrumentType.STOCK,
     exchange: str = "SMART",
     currency: str = "USD",
     primary_exchange: str | None = None,
@@ -1366,7 +1367,7 @@ async def flatten_all_positions() -> list[OrderSubmissionResponse]:
 )
 async def close_symbol_position(
     symbol: str,
-    instrument_type: str = "stock",
+    instrument_type: InstrumentType = InstrumentType.STOCK,
     exchange: str = "SMART",
     currency: str = "USD",
     primary_exchange: str | None = None,
