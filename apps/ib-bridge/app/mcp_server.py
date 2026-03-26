@@ -58,6 +58,7 @@ from app.models.trading import (
     QualifiedStockContractResponse,
     ReducePositionRequest,
     BrokerReconciliationResponse,
+    SupportedInstrumentTypesResponse,
     SymbolConflictResponse,
     SymbolExposureResponse,
     TradeCandidateEvaluationResponse,
@@ -287,6 +288,24 @@ async def positions() -> list[PositionResponse]:
     require_mcp_scopes(READ_SCOPE)
     async with current_trading_service() as service:
         return await service.get_positions()
+
+
+@mcp.tool(
+    name="trading_supported_instrument_types",
+    title="Supported Instrument Types",
+    description=(
+        "List the instrument types currently implemented by the bridge. Use this before "
+        "generic contract, quote, snapshot, or order tools so the agent does not guess "
+        "unsupported products."
+    ),
+    annotations=READ_ONLY,
+    structured_output=True,
+    meta={"category": "meta", "risk_tier": "safe", "side_effects": "none"},
+)
+async def supported_instrument_types() -> SupportedInstrumentTypesResponse:
+    require_mcp_scopes(READ_SCOPE)
+    async with current_trading_service() as service:
+        return await service.get_supported_instrument_types()
 
 
 @mcp.tool(

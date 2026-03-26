@@ -45,6 +45,7 @@ from app.models.trading import (
     QualifiedStockContractResponse,
     ReducePositionRequest,
     BrokerReconciliationResponse,
+    SupportedInstrumentTypesResponse,
     SymbolConflictResponse,
     SymbolExposureResponse,
     TradeCandidateEvaluationResponse,
@@ -86,6 +87,14 @@ async def account_summary(
     _: object = Depends(require_http_scopes(READ_SCOPE)),
 ) -> AccountSummaryResponse:
     return await trading_service.get_account_summary()
+
+
+@router.get("/instruments/supported", response_model=SupportedInstrumentTypesResponse)
+async def supported_instrument_types(
+    trading_service: TradingService = Depends(get_trading_service),
+    _: object = Depends(require_http_scopes(READ_SCOPE)),
+) -> SupportedInstrumentTypesResponse:
+    return await trading_service.get_supported_instrument_types()
 
 
 @router.get("/account/risk", response_model=AccountRiskSnapshotResponse)
