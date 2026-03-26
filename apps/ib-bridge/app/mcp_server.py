@@ -471,9 +471,9 @@ async def qualify_contract(
     name="trading_qualify_stock_contract",
     title="Qualify Stock Contract",
     description=(
-        "Resolve and validate an equity contract before requesting quotes or placing "
-        "orders. Use this when exchange routing or primary exchange selection is "
-        "ambiguous, especially for US stocks routed through SMART."
+        "Resolve and validate a stock contract before requesting quotes or placing "
+        "orders. This is a stock-specific compatibility wrapper; prefer "
+        "trading_qualify_contract for the generic multi-product interface."
     ),
     annotations=READ_ONLY,
     structured_output=True,
@@ -489,7 +489,7 @@ async def qualify_stock_contract(
     currency: str = "USD",
     primary_exchange: str | None = None,
 ) -> QualifiedStockContractResponse:
-    """Resolve and validate a stock contract before requesting quotes or placing orders. Use this when contract routing is ambiguous."""
+    """Resolve and validate a stock contract. Compatibility wrapper for the generic contract tool."""
     require_mcp_scopes(READ_SCOPE)
     async with current_trading_service() as service:
         return await service.qualify_symbol(
@@ -540,9 +540,9 @@ async def market_quote(
     name="trading_stock_quote",
     title="Stock Quote",
     description=(
-        "Fetch a stock quote from Interactive Brokers. The tool first attempts live "
-        "market data and automatically falls back to delayed market data when live "
-        "entitlements are unavailable. The response includes the actual data mode used."
+        "Fetch a stock quote from Interactive Brokers. This is a stock-specific "
+        "compatibility wrapper; prefer trading_market_quote for the generic multi-product "
+        "interface. The tool first attempts live market data and falls back to delayed data."
     ),
     annotations=READ_ONLY,
     structured_output=True,
@@ -559,7 +559,7 @@ async def stock_quote(
     currency: str = "USD",
     primary_exchange: str | None = None,
 ) -> MarketQuoteResponse:
-    """Fetch a stock quote from Interactive Brokers, automatically falling back from live to delayed market data when live entitlements are unavailable."""
+    """Fetch a stock quote. Compatibility wrapper for the generic quote tool."""
     require_mcp_scopes(READ_SCOPE)
     async with current_trading_service() as service:
         return await service.get_stock_quote(
@@ -610,9 +610,9 @@ async def instrument_snapshot(
     name="trading_market_snapshot",
     title="Market Snapshot",
     description=(
-        "Return a decision-ready market snapshot for one symbol, including live or delayed "
-        "data mode, bid, ask, last, close, mid price, spread, spread in basis points, and "
-        "a quote-quality classification."
+        "Return a decision-ready market snapshot for one stock symbol. This is a "
+        "stock-specific compatibility wrapper; prefer trading_instrument_snapshot for the "
+        "generic multi-product interface."
     ),
     annotations=READ_ONLY,
     structured_output=True,
@@ -629,7 +629,7 @@ async def market_snapshot(
     currency: str = "USD",
     primary_exchange: str | None = None,
 ) -> MarketSnapshotResponse:
-    """Return a richer one-shot market snapshot for decision support, not just a raw quote."""
+    """Return a richer one-shot market snapshot for a stock. Compatibility wrapper for the generic snapshot tool."""
     require_mcp_scopes(READ_SCOPE)
     async with current_trading_service() as service:
         return await service.get_market_snapshot(
@@ -643,7 +643,7 @@ async def market_snapshot(
 @mcp.tool(
     name="trading_market_session_status",
     title="Market Session Status",
-    description="Return current US equities session state, including whether market or limit orders are sensible at the moment.",
+    description="Return current US equities session state for the stock desk, including whether market or limit orders are sensible at the moment.",
     annotations=READ_ONLY,
     structured_output=True,
     meta={"category": "market_data", "risk_tier": "safe", "side_effects": "none"},
@@ -677,7 +677,7 @@ async def symbol_exposure(
     currency: str = "USD",
     primary_exchange: str | None = None,
 ) -> SymbolExposureResponse:
-    """Return position plus open-order exposure for one symbol."""
+    """Return position plus open-order exposure for one instrument. Today the product adapter is stock-only."""
     require_mcp_scopes(READ_SCOPE)
     async with current_trading_service() as service:
         return await service.get_symbol_exposure(
@@ -1030,9 +1030,9 @@ async def execution_guardrails(
     name="trading_order_advisor",
     title="Order Advisor",
     description=(
-        "Recommend whether a proposed stock order should be market or limit based on quote "
-        "quality, spread, delayed versus live data, and current guardrails. This is a "
-        "decision-support tool that does not submit anything."
+        "Recommend whether a proposed order should be market or limit based on quote "
+        "quality, spread, delayed versus live data, and current guardrails. This tool is "
+        "instrument-aware through instrument_type, though only stock is implemented today."
     ),
     annotations=EXECUTION_PREVIEW,
     structured_output=True,
@@ -1340,7 +1340,7 @@ async def flatten_all_positions() -> list[OrderSubmissionResponse]:
 @mcp.tool(
     name="trading_close_symbol_position",
     title="Close Symbol Position",
-    description="Submit a price-controlled limit order to flatten the current position in one symbol.",
+    description="Submit a price-controlled limit order to flatten the current position in one instrument. Today only stock is implemented.",
     annotations=EXECUTION,
     structured_output=True,
     meta={"category": "execution", "risk_tier": "high", "side_effects": "submits_broker_close_order"},
