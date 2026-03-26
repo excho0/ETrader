@@ -4,7 +4,8 @@
   "version": "0.1.0",
   "packageManager": "pnpm@10.16.1",
   "scripts": {
-    "compose:up": "docker compose up -d --build",
+    "compose:up": "docker compose --profile mcp up -d --build",
+    "compose:up:full": "docker compose --profile mcp --profile openclaw up -d --build",
     "compose:down": "docker compose down --remove-orphans",
     "compose:logs": "docker compose logs -f",
     "compose:ps": "docker compose ps",
