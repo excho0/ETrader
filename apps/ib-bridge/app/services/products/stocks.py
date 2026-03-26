@@ -70,7 +70,11 @@ class StockProductAdapter(ProductAdapter):
         qualified_contract = await self.qualify_contract(client, spec)
         live_ticker = await client.request_market_data(qualified_contract, market_data_type=1)
         if client.ticker_has_value(live_ticker):
-            return {"ticker": live_ticker, "data_mode": "live"}
+            live_data_mode = client.ticker_data_mode(live_ticker)
+            if live_data_mode == "live":
+                return {"ticker": live_ticker, "data_mode": "live"}
+            if live_data_mode == "delayed":
+                return {"ticker": live_ticker, "data_mode": "delayed"}
 
         delayed_ticker = await client.request_delayed_market_data_with_retry(
             qualified_contract,

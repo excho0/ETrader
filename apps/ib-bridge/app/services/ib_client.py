@@ -433,5 +433,14 @@ class IBGatewayClient:
                 return True
         return False
 
+    @staticmethod
+    def ticker_data_mode(ticker: Ticker) -> str:
+        market_data_type = getattr(ticker, "marketDataType", None)
+        if market_data_type == 1:
+            return "live"
+        if market_data_type in {2, 3, 4}:
+            return "delayed"
+        return "unknown"
+
     async def qualify_contract(self, spec: InstrumentContractSpec) -> Contract:
         return await get_product_adapter(spec.instrument_type).qualify_contract(self, spec)
