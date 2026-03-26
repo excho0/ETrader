@@ -307,6 +307,7 @@ class CancelAllOrdersResponse(BaseModel):
 
 
 class OrderStatusResponse(BaseModel):
+    instrument_type: str = "stock"
     order_id: str
     status: str
     symbol: str | None = None
@@ -321,6 +322,7 @@ class OrderStatusResponse(BaseModel):
 
 
 class OrderLifecycleEventResponse(BaseModel):
+    instrument_type: str = "stock"
     event_id: str
     order_id: str
     symbol: str | None = None
@@ -517,6 +519,7 @@ class PositionActionPlanResponse(BaseModel):
 
 
 class OpenOrderResponse(BaseModel):
+    instrument_type: str = "stock"
     order_id: str
     perm_id: str
     client_id: int

@@ -421,6 +421,7 @@ class TradingService:
                 positions = await self._client.positions()
                 responses = [
                     PositionResponse(
+                        instrument_type="stock",
                         account=item.account,
                         symbol=item.contract.symbol,
                         exchange=item.contract.exchange,
@@ -451,6 +452,7 @@ class TradingService:
             for fill in fills[-25:]:
                 reports.append(
                     ExecutionReportResponse(
+                        instrument_type="stock",
                         symbol=fill.contract.symbol,
                         side=fill.execution.side,
                         shares=float(fill.execution.shares),
@@ -492,6 +494,7 @@ class TradingService:
             payload = _json_object(row.payload_json)
             events.append(
                 OrderLifecycleEventResponse(
+                    instrument_type=str(payload.get("instrument_type", "stock")),
                     event_id=row.event_id,
                     order_id=row.order_id,
                     symbol=row.symbol,
@@ -522,6 +525,7 @@ class TradingService:
         for row in reversed(rows):
             history.append(
                 PositionSnapshotResponse(
+                    instrument_type="stock",
                     snapshot_id=row.snapshot_id,
                     symbol=row.symbol,
                     account=row.account,
@@ -920,6 +924,7 @@ class TradingService:
             for trade in trades:
                 if str(trade.order.orderId) == order_id:
                     return OrderStatusResponse(
+                        instrument_type="stock",
                         order_id=order_id,
                         status=str(trade.orderStatus.status),
                         symbol=trade.contract.symbol,
@@ -936,6 +941,7 @@ class TradingService:
             for fill in reversed(fills):
                 if str(fill.execution.orderId) == order_id:
                     return OrderStatusResponse(
+                        instrument_type="stock",
                         order_id=order_id,
                         status="Filled",
                         symbol=fill.contract.symbol,
@@ -950,6 +956,7 @@ class TradingService:
                     )
 
         return OrderStatusResponse(
+            instrument_type="stock",
             order_id=order_id,
             status="UNKNOWN",
             source="broker_lookup_miss",
@@ -1161,6 +1168,7 @@ class TradingService:
                 largest_position_symbol = position.contract.symbol
             items.append(
                 PortfolioRiskItem(
+                    instrument_type="stock",
                     symbol=position.contract.symbol,
                     currency=position.contract.currency,
                     position=float(position.position),
@@ -2483,6 +2491,7 @@ class TradingService:
     @staticmethod
     def _open_order_response(trade: Trade) -> OpenOrderResponse:
         return OpenOrderResponse(
+            instrument_type="stock",
             order_id=str(trade.order.orderId),
             perm_id=str(trade.order.permId),
             client_id=trade.order.clientId,
