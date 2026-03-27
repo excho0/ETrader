@@ -71,12 +71,10 @@ def configure_logging(
                     "format": "%(asctime)s | %(levelname)s | %(name)s | %(message)s",
                 },
                 "uvicorn_access": {
-                    "()": "uvicorn.logging.AccessFormatter",
-                    "fmt": "%(levelprefix)s | %(client_addr)s - \"%(request_line)s\" %(status_code)s",
-                    "use_colors": True,
+                    "format": "%(levelname)s | %(name)s | %(message)s",
                 },
                 "access_plain": {
-                    "format": "%(asctime)s | %(levelname)s | %(client_addr)s | %(request_line)s | %(status_code)s",
+                    "format": "%(asctime)s | %(levelname)s | %(name)s | %(message)s",
                 },
             },
             "handlers": handlers,
