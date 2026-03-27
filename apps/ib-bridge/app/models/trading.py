@@ -83,6 +83,8 @@ class MarketQuoteResponse(InstrumentTypeAwareModel):
     exchange: str
     currency: str
     data_mode: str
+    quote_available: bool = True
+    availability_note: str | None = None
     bid: float | None = None
     ask: float | None = None
     last: float | None = None
@@ -96,6 +98,8 @@ class MarketSnapshotResponse(InstrumentTypeAwareModel):
     currency: str
     primary_exchange: str | None = None
     data_mode: str
+    quote_available: bool = True
+    availability_note: str | None = None
     bid: float | None = None
     ask: float | None = None
     last: float | None = None

@@ -1050,7 +1050,15 @@ class TradingService:
                 try:
                     quote = await self._client.market_quote(spec)
                 except ValueError as exc:
-                    raise TradingValidationError(str(exc)) from exc
+                    return MarketQuoteResponse(
+                        instrument_type=spec.instrument_type,
+                        symbol=spec.symbol,
+                        exchange=spec.exchange,
+                        currency=spec.currency,
+                        data_mode="unavailable",
+                        quote_available=False,
+                        availability_note=str(exc),
+                    )
 
                 return MarketQuoteResponse(
                     instrument_type=spec.instrument_type,
@@ -1058,6 +1066,8 @@ class TradingService:
                     exchange=spec.exchange,
                     currency=spec.currency,
                     data_mode=str(quote["data_mode"]),
+                    quote_available=True,
+                    availability_note=None,
                     bid=self._normalize_optional_float(quote["ticker"].bid),
                     ask=self._normalize_optional_float(quote["ticker"].ask),
                     last=self._normalize_optional_float(quote["ticker"].last),
@@ -1108,6 +1118,8 @@ class TradingService:
                 currency=spec.currency,
                 primary_exchange=spec.primary_exchange,
                 data_mode=quote.data_mode,
+                quote_available=quote.quote_available,
+                availability_note=quote.availability_note,
                 bid=bid,
                 ask=ask,
                 last=last,
@@ -1411,6 +1423,13 @@ class TradingService:
         else:
             checks.append("Quote is using live market data")
 
+        if not snapshot.quote_available:
+            blockers.append("No usable market quote is currently available for this symbol")
+            if snapshot.availability_note:
+                warnings.append(snapshot.availability_note)
+        else:
+            checks.append("A usable market quote is available")
+
         if not snapshot.has_two_sided_market:
             warnings.append("Bid/ask market is incomplete; slippage risk is higher")
         else:
@@ -1423,7 +1442,7 @@ class TradingService:
         approval_required = False
 
         if reference_price is None:
-            warnings.append("Unable to estimate notional because no reliable reference price is available")
+            blockers.append("Unable to estimate notional because no reliable reference price is available")
         else:
             estimated_notional = abs(request.quantity) * reference_price
             signed_quantity = request.quantity if request.action == "BUY" else -request.quantity
@@ -1581,7 +1600,10 @@ class TradingService:
         suggested_limit_price: float | None = None
 
         if snapshot.data_mode != "live":
-            rationale.append("Only delayed market data is available, so price confidence is lower")
+            if snapshot.data_mode == "unavailable":
+                rationale.append("No usable market quote is available, so execution decisions are not credible")
+            else:
+                rationale.append("Only delayed market data is available, so price confidence is lower")
         else:
             rationale.append("Live market data is available for execution decisions")
 
@@ -2579,6 +2601,8 @@ class TradingService:
 
     @staticmethod
     def _quote_quality(*, data_mode: str, bid: float | None, ask: float | None, spread_bps: float | None, last: float | None) -> str:
+        if data_mode == "unavailable":
+            return "unavailable"
         if data_mode != "live":
             return "delayed"
         if bid is None or ask is None:
