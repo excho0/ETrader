@@ -386,11 +386,21 @@ class IBGatewayClient:
         raise ValueError(f"Unable to find open order_id={order_id}")
 
     async def request_market_data(self, contract: Contract, *, market_data_type: int) -> Ticker:
+        await self.ensure_connected()
         self._ib.reqMarketDataType(market_data_type)
         ticker = self._ib.reqMktData(contract, "", False, False)
-        await asyncio.sleep(1.0)
-        self._ib.cancelMktData(contract)
-        return ticker
+        deadline = asyncio.get_running_loop().time() + self._settings.ib_market_data_timeout_seconds
+        try:
+            while True:
+                if self.ticker_has_value(ticker):
+                    return ticker
+
+                if asyncio.get_running_loop().time() >= deadline:
+                    return ticker
+
+                await asyncio.sleep(0.2)
+        finally:
+            self._ib.cancelMktData(contract)
 
     async def request_delayed_market_data_with_retry(
         self,

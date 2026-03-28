@@ -40,6 +40,7 @@ class Settings(BaseSettings):
     ib_read_only: bool = True
     ib_connect_timeout_seconds: float = 10.0
     ib_request_timeout_seconds: float = 30.0
+    ib_market_data_timeout_seconds: float = Field(default=4.0, gt=0)
     ib_auto_reconnect: bool = True
     ib_reconnect_interval_seconds: float = Field(default=10.0, gt=0)
     ib_reconnect_backoff_max_seconds: float = Field(default=60.0, gt=0)

@@ -1046,9 +1046,37 @@ class TradingService:
     ) -> MarketQuoteResponse:
         cache_key = self._instrument_cache_key("market_quote", spec)
         async def factory() -> MarketQuoteResponse:
+            session = await self.get_market_session_status()
+            if session.session == "weekend":
+                return MarketQuoteResponse(
+                    instrument_type=spec.instrument_type,
+                    symbol=spec.symbol,
+                    exchange=spec.exchange,
+                    currency=spec.currency,
+                    data_mode="unavailable",
+                    quote_available=False,
+                    availability_note="US equities market is in weekend session; quote requests are skipped",
+                )
+
             async with self._request_lock:
                 try:
-                    quote = await self._client.market_quote(spec)
+                    quote = await asyncio.wait_for(
+                        self._client.market_quote(spec),
+                        timeout=self._settings.ib_market_data_timeout_seconds + 1.0,
+                    )
+                except asyncio.TimeoutError:
+                    return MarketQuoteResponse(
+                        instrument_type=spec.instrument_type,
+                        symbol=spec.symbol,
+                        exchange=spec.exchange,
+                        currency=spec.currency,
+                        data_mode="unavailable",
+                        quote_available=False,
+                        availability_note=(
+                            "Timed out waiting for market data from IB Gateway; "
+                            "session may be disconnected or not entitled"
+                        ),
+                    )
                 except ValueError as exc:
                     return MarketQuoteResponse(
                         instrument_type=spec.instrument_type,
