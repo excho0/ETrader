@@ -2,7 +2,7 @@ import asyncio
 import logging
 import math
 from typing import Literal, TypedDict
-from ib_async import AccountValue, Contract, Fill, IB, Order, Position, Ticker, Trade
+from ib_async import AccountValue, Contract, ContractDetails, Fill, IB, Order, Position, Ticker, Trade
 
 from app.core.config import Settings
 from app.core.instrument_types import InstrumentType
@@ -260,6 +260,13 @@ class IBGatewayClient:
 
     async def market_quote(self, spec: InstrumentContractSpec) -> QuoteResult:
         return await get_product_adapter(spec.instrument_type).market_quote(self, spec)
+
+    async def contract_details(self, contract: Contract) -> ContractDetails | None:
+        await self.ensure_connected()
+        details = await self._ib.reqContractDetailsAsync(contract)
+        if not details:
+            return None
+        return details[0]
 
     async def place_order(
         self,
