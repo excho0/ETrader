@@ -1040,6 +1040,19 @@ class TradingService:
             f"{spec.currency}:{spec.primary_exchange or '-'}"
         )
 
+    @staticmethod
+    def _uses_us_equities_session_guard(spec: InstrumentContractSpec) -> bool:
+        if spec.instrument_type != "stock":
+            return False
+        if spec.currency.upper() != "USD":
+            return False
+
+        exchange = spec.exchange.upper()
+        primary_exchange = (spec.primary_exchange or "").upper()
+        us_exchanges = {"SMART", "NASDAQ", "NYSE", "ARCA", "ISLAND", "BATS", "IEX"}
+
+        return exchange in us_exchanges or primary_exchange in us_exchanges
+
     async def get_market_quote(
         self,
         spec: InstrumentContractSpec,
@@ -1047,7 +1060,7 @@ class TradingService:
         cache_key = self._instrument_cache_key("market_quote", spec)
         async def factory() -> MarketQuoteResponse:
             session = await self.get_market_session_status()
-            if session.session == "weekend":
+            if session.session == "weekend" and self._uses_us_equities_session_guard(spec):
                 return MarketQuoteResponse(
                     instrument_type=spec.instrument_type,
                     symbol=spec.symbol,
