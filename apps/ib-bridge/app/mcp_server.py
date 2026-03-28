@@ -11,6 +11,7 @@ from mcp.types import ToolAnnotations
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from app.core.config import get_settings
+from app.core.errors import TradingAPIError
 from app.core.instrument_types import InstrumentType
 from app.core.logging import configure_logging
 from app.core.security import (
@@ -70,6 +71,13 @@ settings = get_settings()
 _active_trading_service: TradingService | None = None
 _active_trading_service_lock = asyncio.Lock()
 logger = logging.getLogger("uvicorn.app.mcp")
+
+
+async def _with_market_data_timeout(coro):
+    try:
+        return await asyncio.wait_for(coro, timeout=settings.ib_market_data_timeout_seconds + 1.0)
+    except asyncio.TimeoutError as exc:
+        raise TradingAPIError("Timed out waiting for market data from IB Gateway", code="market_data_timeout") from exc
 
 auth_settings = (
     AuthSettings(
@@ -551,13 +559,15 @@ async def market_quote(
 ) -> MarketQuoteResponse:
     require_mcp_scopes(READ_SCOPE)
     async with current_trading_service() as service:
-        return await service.get_market_quote(
-            InstrumentContractSpec(
-                instrument_type=instrument_type,
-                symbol=symbol,
-                exchange=exchange,
-                currency=currency,
-                primary_exchange=primary_exchange,
+        return await _with_market_data_timeout(
+            service.get_market_quote(
+                InstrumentContractSpec(
+                    instrument_type=instrument_type,
+                    symbol=symbol,
+                    exchange=exchange,
+                    currency=currency,
+                    primary_exchange=primary_exchange,
+                )
             )
         )
 
@@ -588,11 +598,13 @@ async def stock_quote(
     """Fetch a stock quote. Compatibility wrapper for the generic quote tool."""
     require_mcp_scopes(READ_SCOPE)
     async with current_trading_service() as service:
-        return await service.get_stock_quote(
-            symbol=symbol,
-            exchange=exchange,
-            currency=currency,
-            primary_exchange=primary_exchange,
+        return await _with_market_data_timeout(
+            service.get_stock_quote(
+                symbol=symbol,
+                exchange=exchange,
+                currency=currency,
+                primary_exchange=primary_exchange,
+            )
         )
 
 
@@ -621,13 +633,15 @@ async def instrument_snapshot(
 ) -> MarketSnapshotResponse:
     require_mcp_scopes(READ_SCOPE)
     async with current_trading_service() as service:
-        return await service.get_instrument_snapshot(
-            InstrumentContractSpec(
-                instrument_type=instrument_type,
-                symbol=symbol,
-                exchange=exchange,
-                currency=currency,
-                primary_exchange=primary_exchange,
+        return await _with_market_data_timeout(
+            service.get_instrument_snapshot(
+                InstrumentContractSpec(
+                    instrument_type=instrument_type,
+                    symbol=symbol,
+                    exchange=exchange,
+                    currency=currency,
+                    primary_exchange=primary_exchange,
+                )
             )
         )
 

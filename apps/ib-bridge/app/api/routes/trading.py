@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, Query
+import asyncio
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from app.api.deps import get_trading_service
 from app.core.instrument_types import InstrumentType
@@ -54,6 +56,16 @@ from app.models.trading import (
 from app.services.trading import TradingService
 
 router = APIRouter(prefix="/trading", tags=["trading"])
+
+
+async def _with_market_data_timeout(coro, *, seconds: float):
+    try:
+        return await asyncio.wait_for(coro, timeout=seconds)
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail="Timed out waiting for market data from IB Gateway",
+        ) from exc
 
 
 @router.post("/connect", response_model=dict[str, str])
@@ -242,11 +254,14 @@ async def quote(
     trading_service: TradingService = Depends(get_trading_service),
     _: object = Depends(require_http_scopes(READ_SCOPE)),
 ) -> MarketQuoteResponse:
-    return await trading_service.get_stock_quote(
-        symbol=symbol,
-        exchange=exchange,
-        currency=currency,
-        primary_exchange=primary_exchange,
+    return await _with_market_data_timeout(
+        trading_service.get_stock_quote(
+            symbol=symbol,
+            exchange=exchange,
+            currency=currency,
+            primary_exchange=primary_exchange,
+        ),
+        seconds=trading_service._settings.ib_market_data_timeout_seconds + 1.0,
     )
 
 
@@ -260,14 +275,17 @@ async def instrument_quote(
     trading_service: TradingService = Depends(get_trading_service),
     _: object = Depends(require_http_scopes(READ_SCOPE)),
 ) -> MarketQuoteResponse:
-    return await trading_service.get_market_quote(
-        InstrumentContractSpec(
-            instrument_type=instrument_type,
-            symbol=symbol,
-            exchange=exchange,
-            currency=currency,
-            primary_exchange=primary_exchange,
-        )
+    return await _with_market_data_timeout(
+        trading_service.get_market_quote(
+            InstrumentContractSpec(
+                instrument_type=instrument_type,
+                symbol=symbol,
+                exchange=exchange,
+                currency=currency,
+                primary_exchange=primary_exchange,
+            )
+        ),
+        seconds=trading_service._settings.ib_market_data_timeout_seconds + 1.0,
     )
 
 
@@ -280,11 +298,14 @@ async def market_snapshot(
     trading_service: TradingService = Depends(get_trading_service),
     _: object = Depends(require_http_scopes(READ_SCOPE)),
 ) -> MarketSnapshotResponse:
-    return await trading_service.get_market_snapshot(
-        symbol=symbol,
-        exchange=exchange,
-        currency=currency,
-        primary_exchange=primary_exchange,
+    return await _with_market_data_timeout(
+        trading_service.get_market_snapshot(
+            symbol=symbol,
+            exchange=exchange,
+            currency=currency,
+            primary_exchange=primary_exchange,
+        ),
+        seconds=trading_service._settings.ib_market_data_timeout_seconds + 1.0,
     )
 
 
@@ -298,14 +319,17 @@ async def instrument_market_snapshot(
     trading_service: TradingService = Depends(get_trading_service),
     _: object = Depends(require_http_scopes(READ_SCOPE)),
 ) -> MarketSnapshotResponse:
-    return await trading_service.get_instrument_snapshot(
-        InstrumentContractSpec(
-            instrument_type=instrument_type,
-            symbol=symbol,
-            exchange=exchange,
-            currency=currency,
-            primary_exchange=primary_exchange,
-        )
+    return await _with_market_data_timeout(
+        trading_service.get_instrument_snapshot(
+            InstrumentContractSpec(
+                instrument_type=instrument_type,
+                symbol=symbol,
+                exchange=exchange,
+                currency=currency,
+                primary_exchange=primary_exchange,
+            )
+        ),
+        seconds=trading_service._settings.ib_market_data_timeout_seconds + 1.0,
     )
 
 
