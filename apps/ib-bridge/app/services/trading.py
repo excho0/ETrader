@@ -78,6 +78,7 @@ from app.models.trading import (
 from app.services.products.registry import list_supported_instrument_types
 if TYPE_CHECKING:
     from ib_async import AccountValue as BrokerAccountValue
+    from ib_async import ContractDetails
     from ib_async import Position as BrokerPosition
     from ib_async import Trade
 
@@ -1041,17 +1042,78 @@ class TradingService:
         )
 
     @staticmethod
-    def _uses_us_equities_session_guard(spec: InstrumentContractSpec) -> bool:
-        if spec.instrument_type != "stock":
-            return False
-        if spec.currency.upper() != "USD":
-            return False
+    def _parse_ib_hours_timestamp(raw: str, default_date: str, tz: ZoneInfo) -> datetime | None:
+        token = raw.strip()
+        if not token:
+            return None
+        if ":" in token:
+            normalized = token.replace(":", "")
+        else:
+            normalized = f"{default_date}{token}"
+        try:
+            parsed = datetime.strptime(normalized, "%Y%m%d%H%M")
+        except ValueError:
+            return None
+        return parsed.replace(tzinfo=tz)
 
-        exchange = spec.exchange.upper()
-        primary_exchange = (spec.primary_exchange or "").upper()
-        us_exchanges = {"SMART", "NASDAQ", "NYSE", "ARCA", "ISLAND", "BATS", "IEX"}
+    def _contract_is_open_now(self, details: "ContractDetails") -> bool | None:
+        hours_blob = getattr(details, "liquidHours", None) or getattr(details, "tradingHours", None)
+        if not hours_blob:
+            return None
 
-        return exchange in us_exchanges or primary_exchange in us_exchanges
+        timezone_name = getattr(details, "timeZoneId", None) or "UTC"
+        try:
+            timezone = ZoneInfo(timezone_name)
+        except Exception:
+            timezone = ZoneInfo("UTC")
+
+        now = datetime.now(timezone)
+        saw_window = False
+
+        for segment in str(hours_blob).split(";"):
+            if not segment or ":" not in segment:
+                continue
+            trade_date, ranges_blob = segment.split(":", 1)
+            if ranges_blob == "CLOSED":
+                continue
+
+            for window in ranges_blob.split(","):
+                if "-" not in window:
+                    continue
+                start_raw, end_raw = window.split("-", 1)
+                start_at = self._parse_ib_hours_timestamp(start_raw, trade_date, timezone)
+                end_at = self._parse_ib_hours_timestamp(end_raw, trade_date, timezone)
+                if start_at is None or end_at is None:
+                    continue
+                saw_window = True
+                if start_at <= now <= end_at:
+                    return True
+
+        if saw_window:
+            return False
+        return None
+
+    async def _instrument_closed_note(self, spec: InstrumentContractSpec) -> str | None:
+        try:
+            contract = await self._client.qualify_contract(spec)
+            details = await self._client.contract_details(contract)
+        except Exception:
+            return None
+
+        if details is None:
+            return None
+
+        is_open = self._contract_is_open_now(details)
+        if is_open is not False:
+            return None
+
+        venue = (
+            getattr(details, "marketName", None)
+            or getattr(contract, "primaryExchange", None)
+            or getattr(contract, "exchange", None)
+            or spec.exchange
+        )
+        return f"{venue} is currently closed per IB trading hours"
 
     async def get_market_quote(
         self,
@@ -1059,19 +1121,21 @@ class TradingService:
     ) -> MarketQuoteResponse:
         cache_key = self._instrument_cache_key("market_quote", spec)
         async def factory() -> MarketQuoteResponse:
-            session = await self.get_market_session_status()
-            if session.session == "weekend" and self._uses_us_equities_session_guard(spec):
-                return MarketQuoteResponse(
-                    instrument_type=spec.instrument_type,
-                    symbol=spec.symbol,
-                    exchange=spec.exchange,
-                    currency=spec.currency,
-                    data_mode="unavailable",
-                    quote_available=False,
-                    availability_note="US equities market is in weekend session; quote requests are skipped",
-                )
-
             async with self._request_lock:
+                closed_note = await asyncio.wait_for(
+                    self._instrument_closed_note(spec),
+                    timeout=self._settings.ib_market_data_timeout_seconds + 1.0,
+                )
+                if closed_note:
+                    return MarketQuoteResponse(
+                        instrument_type=spec.instrument_type,
+                        symbol=spec.symbol,
+                        exchange=spec.exchange,
+                        currency=spec.currency,
+                        data_mode="unavailable",
+                        quote_available=False,
+                        availability_note=closed_note,
+                    )
                 try:
                     quote = await asyncio.wait_for(
                         self._client.market_quote(spec),
