@@ -40,6 +40,7 @@ from app.models.trading import (
     OrderPreviewResponse,
     OrderReplaceRequest,
     OrderSubmissionResponse,
+    PolicyProfileResponse,
     PortfolioRiskSnapshotResponse,
     PositionActionPlanResponse,
     PositionSnapshotResponse,
@@ -411,6 +412,14 @@ async def execution_guardrails(
     _: object = Depends(require_http_scopes(PREVIEW_SCOPE)),
 ) -> ExecutionGuardrailsResponse:
     return await trading_service.get_execution_guardrails(request)
+
+
+@router.get("/policy/profile", response_model=PolicyProfileResponse)
+async def policy_profile(
+    trading_service: TradingService = Depends(get_trading_service),
+    _: object = Depends(require_http_scopes(READ_SCOPE)),
+) -> PolicyProfileResponse:
+    return await trading_service.get_policy_profile()
 
 
 @router.post("/orders/advice", response_model=OrderAdvisorResponse)
