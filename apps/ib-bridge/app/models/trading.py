@@ -200,6 +200,25 @@ class CashSizingResponse(InstrumentTypeAwareModel):
     warnings: list[str] = []
 
 
+class PolicyProfileResponse(BaseModel):
+    policy_mode: str
+    connected_mode: str | None = None
+    target_mode: str
+    max_trade_notional: float
+    max_position_notional: float
+    max_symbol_concentration_pct: float
+    max_daily_new_exposure: float
+    max_open_orders_per_symbol: int
+    block_delayed_market_orders: bool
+    max_market_spread_bps: float
+    require_limit_for_wide_spread: bool
+    wide_spread_bps: float
+    require_approval_for_all: bool
+    approval_trade_notional: float
+    paper_order_submission_enabled: bool
+    live_order_submission_enabled: bool
+
+
 class ExecutionGuardrailsResponse(InstrumentTypeAwareModel):
     instrument_type: InstrumentType = InstrumentType.STOCK
     symbol: str

@@ -52,6 +52,7 @@ from app.models.trading import (
     OrderPreviewResponse,
     OrderReplaceRequest,
     OrderSubmissionResponse,
+    PolicyProfileResponse,
     PortfolioRiskSnapshotResponse,
     PositionActionPlanResponse,
     PositionSnapshotResponse,
@@ -1008,6 +1009,28 @@ async def submit_reduce_position(
                 client_request_id=client_request_id,
             )
         )
+
+
+@mcp.tool(
+    name="trading_policy_profile",
+    title="Trading Policy Profile",
+    description=(
+        "Return the active trading policy thresholds and execution controls for the current "
+        "paper or live mode, including notional caps, spread rules, approval requirements, "
+        "and order-submission enablement."
+    ),
+    annotations=READ_ONLY,
+    structured_output=True,
+    meta={
+        "category": "risk_controls",
+        "risk_tier": "safe",
+        "side_effects": "none",
+    },
+)
+async def policy_profile() -> PolicyProfileResponse:
+    require_mcp_scopes(READ_SCOPE)
+    async with current_trading_service() as service:
+        return await service.get_policy_profile()
 
 
 @mcp.tool(

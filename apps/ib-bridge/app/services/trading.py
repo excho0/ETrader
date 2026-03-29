@@ -61,6 +61,7 @@ from app.models.trading import (
     OrderPreviewResponse,
     OrderReplaceRequest,
     OrderSubmissionResponse,
+    PolicyProfileResponse,
     PortfolioRiskItem,
     PortfolioRiskSnapshotResponse,
     PositionSnapshotResponse,
@@ -431,6 +432,27 @@ class TradingService:
                     "trading_market_snapshot",
                 ]
             },
+        )
+
+    async def get_policy_profile(self) -> PolicyProfileResponse:
+        profile = self._policy_profile()
+        return PolicyProfileResponse(
+            policy_mode=profile.name,
+            connected_mode=self._client.connected_mode,
+            target_mode=self._settings.ib_target_mode,
+            max_trade_notional=profile.max_trade_notional,
+            max_position_notional=profile.max_position_notional,
+            max_symbol_concentration_pct=profile.max_symbol_concentration_pct,
+            max_daily_new_exposure=profile.max_daily_new_exposure,
+            max_open_orders_per_symbol=profile.max_open_orders_per_symbol,
+            block_delayed_market_orders=profile.block_delayed_market_orders,
+            max_market_spread_bps=profile.max_market_spread_bps,
+            require_limit_for_wide_spread=profile.require_limit_for_wide_spread,
+            wide_spread_bps=profile.wide_spread_bps,
+            require_approval_for_all=profile.require_approval_for_all,
+            approval_trade_notional=profile.approval_trade_notional,
+            paper_order_submission_enabled=self._settings.allow_paper_orders,
+            live_order_submission_enabled=self._settings.allow_live_orders,
         )
 
     async def get_positions(self) -> list[PositionResponse]:
