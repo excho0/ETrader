@@ -113,6 +113,71 @@ class MarketSnapshotResponse(InstrumentTypeAwareModel):
     quote_quality: str
 
 
+class HistoricalBarResponse(BaseModel):
+    time: str
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float | None = None
+    average: float | None = None
+    bar_count: int | None = None
+
+
+class HistoricalBarsResponse(InstrumentTypeAwareModel):
+    instrument_type: InstrumentType = InstrumentType.STOCK
+    symbol: str
+    exchange: str
+    currency: str
+    primary_exchange: str | None = None
+    data_mode: str = "historical"
+    timeframe: str
+    duration: str
+    what_to_show: str
+    use_rth: bool
+    bar_count: int
+    bars: list[HistoricalBarResponse]
+
+
+class MultiTimeframeBarsResponse(InstrumentTypeAwareModel):
+    instrument_type: InstrumentType = InstrumentType.STOCK
+    symbol: str
+    exchange: str
+    currency: str
+    primary_exchange: str | None = None
+    data_mode: str = "historical"
+    what_to_show: str
+    use_rth: bool
+    frames: dict[str, HistoricalBarsResponse]
+
+
+class LevelMapResponse(InstrumentTypeAwareModel):
+    instrument_type: InstrumentType = InstrumentType.STOCK
+    symbol: str
+    exchange: str
+    currency: str
+    primary_exchange: str | None = None
+    data_mode: str = "historical"
+    intraday_timeframe: str
+    intraday_duration: str
+    daily_duration: str
+    what_to_show: str
+    use_rth: bool
+    current_price: float | None = None
+    current_time: str | None = None
+    session_open: float | None = None
+    session_high: float | None = None
+    session_low: float | None = None
+    prior_close: float | None = None
+    prior_day_high: float | None = None
+    prior_day_low: float | None = None
+    rolling_5d_high: float | None = None
+    rolling_5d_low: float | None = None
+    intraday_vwap: float | None = None
+    intraday_bar_count: int = 0
+    daily_bar_count: int = 0
+
+
 class AccountRiskSnapshotResponse(BaseModel):
     account: str | None = None
     base_currency: str | None = None

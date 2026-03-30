@@ -82,6 +82,26 @@ class StockProductAdapter(ProductAdapter):
         )
         return {"ticker": delayed_ticker, "data_mode": "delayed"}
 
+    async def historical_bars(
+        self,
+        client,
+        spec: InstrumentContractSpec,
+        *,
+        timeframe: str,
+        duration: str,
+        what_to_show: str,
+        use_rth: bool,
+    ) -> list[object]:
+        qualified_contract = await self.qualify_contract(client, spec)
+        return await client.request_historical_bars(
+            qualified_contract,
+            symbol=spec.symbol,
+            timeframe=timeframe,
+            duration=duration,
+            what_to_show=what_to_show,
+            use_rth=use_rth,
+        )
+
     async def place_order(
         self,
         client,

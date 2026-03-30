@@ -25,6 +25,17 @@ class ProductAdapter(Protocol):
         spec: InstrumentContractSpec,
     ) -> QuoteResult: ...
 
+    async def historical_bars(
+        self,
+        client: IBGatewayClient,
+        spec: InstrumentContractSpec,
+        *,
+        timeframe: str,
+        duration: str,
+        what_to_show: str,
+        use_rth: bool,
+    ) -> list[object]: ...
+
     async def place_order(
         self,
         client: IBGatewayClient,
