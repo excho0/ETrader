@@ -38,10 +38,13 @@ from app.models.trading import (
     ExecutionReportResponse,
     ExecutionQualityResponse,
     ExecutionGuardrailsResponse,
+    HistoricalBarsResponse,
     InstrumentContractSpec,
+    LevelMapResponse,
     MarketSnapshotResponse,
     MarketSessionStatusResponse,
     MarketQuoteResponse,
+    MultiTimeframeBarsResponse,
     OpenOrderResponse,
     OpenPositionRequest,
     OrderAdvisorResponse,
@@ -74,9 +77,9 @@ _active_trading_service_lock = asyncio.Lock()
 logger = logging.getLogger("uvicorn.app.mcp")
 
 
-async def _with_market_data_timeout(coro):
+async def _with_market_data_timeout(coro, *, seconds: float | None = None):
     try:
-        return await asyncio.wait_for(coro, timeout=settings.ib_market_data_timeout_seconds + 1.0)
+        return await asyncio.wait_for(coro, timeout=seconds or (settings.ib_market_data_timeout_seconds + 1.0))
     except asyncio.TimeoutError as exc:
         raise TradingAPIError("Timed out waiting for market data from IB Gateway", code="market_data_timeout") from exc
 
@@ -678,6 +681,131 @@ async def market_snapshot(
             exchange=exchange,
             currency=currency,
             primary_exchange=primary_exchange,
+        )
+
+
+@mcp.tool(
+    name="trading_historical_bars",
+    title="Historical Bars",
+    description=(
+        "Fetch raw historical OHLCV-style bars for an instrument using the current product "
+        "adapter. This is the generic time-series entrypoint for future multi-product expansion."
+    ),
+    annotations=READ_ONLY,
+    structured_output=True,
+    meta={"category": "market_data", "risk_tier": "safe", "side_effects": "none"},
+)
+async def historical_bars(
+    symbol: str,
+    instrument_type: InstrumentType = InstrumentType.STOCK,
+    timeframe: str = "5 mins",
+    duration: str = "1 D",
+    what_to_show: str = "TRADES",
+    use_rth: bool = True,
+    exchange: str = "SMART",
+    currency: str = "USD",
+    primary_exchange: str | None = None,
+) -> HistoricalBarsResponse:
+    require_mcp_scopes(READ_SCOPE)
+    async with current_trading_service() as service:
+        return await _with_market_data_timeout(
+            service.get_historical_bars(
+                InstrumentContractSpec(
+                    instrument_type=instrument_type,
+                    symbol=symbol,
+                    exchange=exchange,
+                    currency=currency,
+                    primary_exchange=primary_exchange,
+                ),
+                timeframe=timeframe,
+                duration=duration,
+                what_to_show=what_to_show,
+                use_rth=use_rth,
+            ),
+            seconds=settings.ib_request_timeout_seconds + 1.0,
+        )
+
+
+@mcp.tool(
+    name="trading_multi_timeframe_bars",
+    title="Multi-Timeframe Bars",
+    description=(
+        "Fetch a standard multi-timeframe raw bar bundle so agents can reason over short, "
+        "medium, and daily structure without making multiple market-data calls."
+    ),
+    annotations=READ_ONLY,
+    structured_output=True,
+    meta={"category": "market_data", "risk_tier": "safe", "side_effects": "none"},
+)
+async def multi_timeframe_bars(
+    symbol: str,
+    instrument_type: InstrumentType = InstrumentType.STOCK,
+    what_to_show: str = "TRADES",
+    use_rth: bool = True,
+    exchange: str = "SMART",
+    currency: str = "USD",
+    primary_exchange: str | None = None,
+) -> MultiTimeframeBarsResponse:
+    require_mcp_scopes(READ_SCOPE)
+    async with current_trading_service() as service:
+        return await _with_market_data_timeout(
+            service.get_multi_timeframe_bars(
+                InstrumentContractSpec(
+                    instrument_type=instrument_type,
+                    symbol=symbol,
+                    exchange=exchange,
+                    currency=currency,
+                    primary_exchange=primary_exchange,
+                ),
+                what_to_show=what_to_show,
+                use_rth=use_rth,
+            ),
+            seconds=settings.ib_request_timeout_seconds + 1.0,
+        )
+
+
+@mcp.tool(
+    name="trading_level_map",
+    title="Level Map",
+    description=(
+        "Return factual market structure levels derived from raw bars, such as session high/low, "
+        "prior close, rolling highs/lows, and intraday VWAP. The tool stays descriptive and does "
+        "not classify patterns."
+    ),
+    annotations=READ_ONLY,
+    structured_output=True,
+    meta={"category": "market_data", "risk_tier": "safe", "side_effects": "none"},
+)
+async def level_map(
+    symbol: str,
+    instrument_type: InstrumentType = InstrumentType.STOCK,
+    intraday_timeframe: str = "5 mins",
+    intraday_duration: str = "1 D",
+    daily_duration: str = "10 D",
+    what_to_show: str = "TRADES",
+    use_rth: bool = True,
+    exchange: str = "SMART",
+    currency: str = "USD",
+    primary_exchange: str | None = None,
+) -> LevelMapResponse:
+    require_mcp_scopes(READ_SCOPE)
+    async with current_trading_service() as service:
+        return await _with_market_data_timeout(
+            service.get_level_map(
+                InstrumentContractSpec(
+                    instrument_type=instrument_type,
+                    symbol=symbol,
+                    exchange=exchange,
+                    currency=currency,
+                    primary_exchange=primary_exchange,
+                ),
+                intraday_timeframe=intraday_timeframe,
+                intraday_duration=intraday_duration,
+                daily_duration=daily_duration,
+                what_to_show=what_to_show,
+                use_rth=use_rth,
+            ),
+            seconds=settings.ib_request_timeout_seconds + 1.0,
         )
 
 

@@ -263,12 +263,62 @@ class IBGatewayClient:
     async def market_quote(self, spec: InstrumentContractSpec) -> QuoteResult:
         return await get_product_adapter(spec.instrument_type).market_quote(self, spec)
 
+    async def historical_bars(
+        self,
+        spec: InstrumentContractSpec,
+        *,
+        timeframe: str,
+        duration: str,
+        what_to_show: str,
+        use_rth: bool,
+    ) -> list[object]:
+        return await get_product_adapter(spec.instrument_type).historical_bars(
+            self,
+            spec,
+            timeframe=timeframe,
+            duration=duration,
+            what_to_show=what_to_show,
+            use_rth=use_rth,
+        )
+
     async def contract_details(self, contract: Contract) -> ContractDetails | None:
         await self.ensure_connected()
         details = await self._ib.reqContractDetailsAsync(contract)
         if not details:
             return None
         return details[0]
+
+    async def request_historical_bars(
+        self,
+        contract: Contract,
+        *,
+        symbol: str,
+        timeframe: str,
+        duration: str,
+        what_to_show: str,
+        use_rth: bool,
+    ) -> list[object]:
+        await self.ensure_connected()
+        try:
+            bars = await self._ib.reqHistoricalDataAsync(
+                contract,
+                endDateTime="",
+                durationStr=duration,
+                barSizeSetting=timeframe,
+                whatToShow=what_to_show,
+                useRTH=use_rth,
+                formatDate=1,
+                keepUpToDate=False,
+                timeout=self._settings.ib_request_timeout_seconds,
+            )
+        except Exception as exc:
+            raise ValueError(
+                f"Unable to load historical bars for symbol={symbol} "
+                f"(exchange={contract.exchange}, primaryExchange={getattr(contract, 'primaryExchange', None)}): "
+                f"{exc}"
+            ) from exc
+
+        return list(bars or [])
 
     async def place_order(
         self,

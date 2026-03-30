@@ -47,10 +47,14 @@ from app.models.trading import (
     ExecutionGuardrailsResponse,
     ExecutionReportResponse,
     ExecutionQualityResponse,
+    HistoricalBarResponse,
+    HistoricalBarsResponse,
     InstrumentContractSpec,
+    LevelMapResponse,
     MarketQuoteResponse,
     MarketSnapshotResponse,
     MarketSessionStatusResponse,
+    MultiTimeframeBarsResponse,
     OpenOrderResponse,
     OpenPositionRequest,
     OrderAdvisorResponse,
@@ -1267,6 +1271,170 @@ class TradingService:
             )
 
         return cast(MarketSnapshotResponse, await self._cached_read(cache_key, 3.0, factory))
+
+    async def get_historical_bars(
+        self,
+        spec: InstrumentContractSpec,
+        *,
+        timeframe: str,
+        duration: str,
+        what_to_show: str = "TRADES",
+        use_rth: bool = True,
+    ) -> HistoricalBarsResponse:
+        cache_key = self._instrument_cache_key(
+            "historical_bars",
+            InstrumentContractSpec(
+                instrument_type=spec.instrument_type,
+                symbol=spec.symbol,
+                exchange=f"{spec.exchange}:{timeframe}:{duration}:{what_to_show}:{int(use_rth)}",
+                currency=spec.currency,
+                primary_exchange=spec.primary_exchange,
+            ),
+        )
+
+        async def factory() -> HistoricalBarsResponse:
+            async with self._request_lock:
+                bars = await asyncio.wait_for(
+                    self._client.historical_bars(
+                        spec,
+                        timeframe=timeframe,
+                        duration=duration,
+                        what_to_show=what_to_show,
+                        use_rth=use_rth,
+                    ),
+                    timeout=self._settings.ib_request_timeout_seconds + 1.0,
+                )
+
+            normalized_bars = [self._normalize_historical_bar(bar) for bar in bars]
+            return HistoricalBarsResponse(
+                instrument_type=spec.instrument_type,
+                symbol=spec.symbol,
+                exchange=spec.exchange,
+                currency=spec.currency,
+                primary_exchange=spec.primary_exchange,
+                data_mode="historical",
+                timeframe=timeframe,
+                duration=duration,
+                what_to_show=what_to_show,
+                use_rth=use_rth,
+                bar_count=len(normalized_bars),
+                bars=normalized_bars,
+            )
+
+        return cast(HistoricalBarsResponse, await self._cached_read(cache_key, 15.0, factory))
+
+    async def get_multi_timeframe_bars(
+        self,
+        spec: InstrumentContractSpec,
+        *,
+        what_to_show: str = "TRADES",
+        use_rth: bool = True,
+    ) -> MultiTimeframeBarsResponse:
+        frame_specs = {
+            "1m": ("1 min", "1 D"),
+            "5m": ("5 mins", "2 D"),
+            "15m": ("15 mins", "5 D"),
+            "1d": ("1 day", "3 M"),
+        }
+        frames: dict[str, HistoricalBarsResponse] = {}
+        for label, (timeframe, duration) in frame_specs.items():
+            frames[label] = await self.get_historical_bars(
+                spec,
+                timeframe=timeframe,
+                duration=duration,
+                what_to_show=what_to_show,
+                use_rth=use_rth,
+            )
+
+        return MultiTimeframeBarsResponse(
+            instrument_type=spec.instrument_type,
+            symbol=spec.symbol,
+            exchange=spec.exchange,
+            currency=spec.currency,
+            primary_exchange=spec.primary_exchange,
+            data_mode="historical",
+            what_to_show=what_to_show,
+            use_rth=use_rth,
+            frames=frames,
+        )
+
+    async def get_level_map(
+        self,
+        spec: InstrumentContractSpec,
+        *,
+        intraday_timeframe: str = "5 mins",
+        intraday_duration: str = "1 D",
+        daily_duration: str = "10 D",
+        what_to_show: str = "TRADES",
+        use_rth: bool = True,
+    ) -> LevelMapResponse:
+        cache_key = self._instrument_cache_key(
+            "level_map",
+            InstrumentContractSpec(
+                instrument_type=spec.instrument_type,
+                symbol=spec.symbol,
+                exchange=(
+                    f"{spec.exchange}:{intraday_timeframe}:{intraday_duration}:{daily_duration}:"
+                    f"{what_to_show}:{int(use_rth)}"
+                ),
+                currency=spec.currency,
+                primary_exchange=spec.primary_exchange,
+            ),
+        )
+
+        async def factory() -> LevelMapResponse:
+            intraday = await self.get_historical_bars(
+                spec,
+                timeframe=intraday_timeframe,
+                duration=intraday_duration,
+                what_to_show=what_to_show,
+                use_rth=use_rth,
+            )
+            daily = await self.get_historical_bars(
+                spec,
+                timeframe="1 day",
+                duration=daily_duration,
+                what_to_show=what_to_show,
+                use_rth=use_rth,
+            )
+
+            intraday_bars = intraday.bars
+            daily_bars = daily.bars
+            current_bar = intraday_bars[-1] if intraday_bars else None
+            prior_daily_bar = daily_bars[-2] if len(daily_bars) >= 2 else None
+            latest_daily_bar = daily_bars[-1] if daily_bars else None
+            rolling_window = daily_bars[-5:] if daily_bars else []
+
+            intraday_vwap = self._volume_weighted_average_price(intraday_bars)
+
+            return LevelMapResponse(
+                instrument_type=spec.instrument_type,
+                symbol=spec.symbol,
+                exchange=spec.exchange,
+                currency=spec.currency,
+                primary_exchange=spec.primary_exchange,
+                data_mode="historical",
+                intraday_timeframe=intraday_timeframe,
+                intraday_duration=intraday_duration,
+                daily_duration=daily_duration,
+                what_to_show=what_to_show,
+                use_rth=use_rth,
+                current_price=current_bar.close if current_bar else (latest_daily_bar.close if latest_daily_bar else None),
+                current_time=current_bar.time if current_bar else None,
+                session_open=intraday_bars[0].open if intraday_bars else None,
+                session_high=max((bar.high for bar in intraday_bars), default=None),
+                session_low=min((bar.low for bar in intraday_bars), default=None),
+                prior_close=prior_daily_bar.close if prior_daily_bar else None,
+                prior_day_high=prior_daily_bar.high if prior_daily_bar else None,
+                prior_day_low=prior_daily_bar.low if prior_daily_bar else None,
+                rolling_5d_high=max((bar.high for bar in rolling_window), default=None),
+                rolling_5d_low=min((bar.low for bar in rolling_window), default=None),
+                intraday_vwap=intraday_vwap,
+                intraday_bar_count=len(intraday_bars),
+                daily_bar_count=len(daily_bars),
+            )
+
+        return cast(LevelMapResponse, await self._cached_read(cache_key, 10.0, factory))
 
     async def get_account_risk_snapshot(self) -> AccountRiskSnapshotResponse:
         async with self._request_lock:
@@ -2703,6 +2871,39 @@ class TradingService:
                 return None
             return numeric
         return None
+
+    @classmethod
+    def _normalize_historical_bar(cls, bar: object) -> HistoricalBarResponse:
+        raw_time = getattr(bar, "date", None) or getattr(bar, "time", None)
+        if isinstance(raw_time, datetime):
+            time_value = raw_time.isoformat()
+        else:
+            time_value = str(raw_time)
+        return HistoricalBarResponse(
+            time=time_value,
+            open=float(getattr(bar, "open", getattr(bar, "open_", 0.0))),
+            high=float(getattr(bar, "high", 0.0)),
+            low=float(getattr(bar, "low", 0.0)),
+            close=float(getattr(bar, "close", 0.0)),
+            volume=cls._normalize_optional_float(getattr(bar, "volume", None)),
+            average=cls._normalize_optional_float(getattr(bar, "average", getattr(bar, "wap", None))),
+            bar_count=cast(int | None, getattr(bar, "barCount", getattr(bar, "count", None))),
+        )
+
+    @staticmethod
+    def _volume_weighted_average_price(bars: list[HistoricalBarResponse]) -> float | None:
+        weighted_total = 0.0
+        total_volume = 0.0
+        for bar in bars:
+            volume = bar.volume
+            if volume is None or volume <= 0:
+                continue
+            typical_price = (bar.high + bar.low + bar.close) / 3
+            weighted_total += typical_price * volume
+            total_volume += volume
+        if total_volume <= 0:
+            return None
+        return weighted_total / total_volume
 
     @staticmethod
     def _mid_price(bid: float | None, ask: float | None) -> float | None:

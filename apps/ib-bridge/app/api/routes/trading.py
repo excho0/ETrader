@@ -26,10 +26,13 @@ from app.models.trading import (
     ExecutionReportResponse,
     ExecutionQualityResponse,
     ExecutionGuardrailsResponse,
+    HistoricalBarsResponse,
     InstrumentContractSpec,
+    LevelMapResponse,
     MarketSnapshotResponse,
     MarketSessionStatusResponse,
     MarketQuoteResponse,
+    MultiTimeframeBarsResponse,
     OpenOrderResponse,
     OpenPositionRequest,
     OrderAdvisorResponse,
@@ -331,6 +334,100 @@ async def instrument_market_snapshot(
             )
         ),
         seconds=trading_service._settings.ib_market_data_timeout_seconds + 1.0,
+    )
+
+
+@router.get("/bars/{instrument_type}/{symbol}", response_model=HistoricalBarsResponse)
+async def historical_bars(
+    instrument_type: InstrumentType,
+    symbol: str,
+    timeframe: str = Query(default="5 mins"),
+    duration: str = Query(default="1 D"),
+    what_to_show: str = Query(default="TRADES"),
+    use_rth: bool = Query(default=True),
+    primary_exchange: str | None = Query(default=None),
+    currency: str = Query(default="USD"),
+    exchange: str = Query(default="SMART"),
+    trading_service: TradingService = Depends(get_trading_service),
+    _: object = Depends(require_http_scopes(READ_SCOPE)),
+) -> HistoricalBarsResponse:
+    return await _with_market_data_timeout(
+        trading_service.get_historical_bars(
+            InstrumentContractSpec(
+                instrument_type=instrument_type,
+                symbol=symbol,
+                exchange=exchange,
+                currency=currency,
+                primary_exchange=primary_exchange,
+            ),
+            timeframe=timeframe,
+            duration=duration,
+            what_to_show=what_to_show,
+            use_rth=use_rth,
+        ),
+        seconds=trading_service._settings.ib_request_timeout_seconds + 1.0,
+    )
+
+
+@router.get("/bars/{instrument_type}/{symbol}/multi-timeframe", response_model=MultiTimeframeBarsResponse)
+async def multi_timeframe_bars(
+    instrument_type: InstrumentType,
+    symbol: str,
+    what_to_show: str = Query(default="TRADES"),
+    use_rth: bool = Query(default=True),
+    primary_exchange: str | None = Query(default=None),
+    currency: str = Query(default="USD"),
+    exchange: str = Query(default="SMART"),
+    trading_service: TradingService = Depends(get_trading_service),
+    _: object = Depends(require_http_scopes(READ_SCOPE)),
+) -> MultiTimeframeBarsResponse:
+    return await _with_market_data_timeout(
+        trading_service.get_multi_timeframe_bars(
+            InstrumentContractSpec(
+                instrument_type=instrument_type,
+                symbol=symbol,
+                exchange=exchange,
+                currency=currency,
+                primary_exchange=primary_exchange,
+            ),
+            what_to_show=what_to_show,
+            use_rth=use_rth,
+        ),
+        seconds=trading_service._settings.ib_request_timeout_seconds + 1.0,
+    )
+
+
+@router.get("/levels/{instrument_type}/{symbol}", response_model=LevelMapResponse)
+async def level_map(
+    instrument_type: InstrumentType,
+    symbol: str,
+    intraday_timeframe: str = Query(default="5 mins"),
+    intraday_duration: str = Query(default="1 D"),
+    daily_duration: str = Query(default="10 D"),
+    what_to_show: str = Query(default="TRADES"),
+    use_rth: bool = Query(default=True),
+    primary_exchange: str | None = Query(default=None),
+    currency: str = Query(default="USD"),
+    exchange: str = Query(default="SMART"),
+    trading_service: TradingService = Depends(get_trading_service),
+    _: object = Depends(require_http_scopes(READ_SCOPE)),
+) -> LevelMapResponse:
+    return await _with_market_data_timeout(
+        trading_service.get_level_map(
+            InstrumentContractSpec(
+                instrument_type=instrument_type,
+                symbol=symbol,
+                exchange=exchange,
+                currency=currency,
+                primary_exchange=primary_exchange,
+            ),
+            intraday_timeframe=intraday_timeframe,
+            intraday_duration=intraday_duration,
+            daily_duration=daily_duration,
+            what_to_show=what_to_show,
+            use_rth=use_rth,
+        ),
+        seconds=trading_service._settings.ib_request_timeout_seconds + 1.0,
     )
 
 
