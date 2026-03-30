@@ -22,6 +22,8 @@ class ConnectionTarget(TypedDict):
 
 
 class IBGatewayClient:
+    _NONFATAL_MARKET_DATA_ERROR_CODES = frozenset({200, 300, 354, 10089, 10167})
+
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._ib = IB()
@@ -396,17 +398,34 @@ class IBGatewayClient:
         await self.ensure_connected()
         self._ib.reqMarketDataType(market_data_type)
         ticker = self._ib.reqMktData(contract, "", False, False)
+        req_id = self._ib.wrapper.ticker2ReqId["mktData"].get(ticker)
+        captured_errors: list[tuple[int, str]] = []
+
+        def on_error(event_req_id: int, error_code: int, error_string: str, _contract: Contract | None):
+            if event_req_id != req_id:
+                return
+            captured_errors.append((error_code, error_string))
+
+        self._ib.errorEvent.connect(on_error)
         deadline = asyncio.get_running_loop().time() + self._settings.ib_market_data_timeout_seconds
         try:
             while True:
                 if self.ticker_has_value(ticker):
                     return ticker
 
+                if captured_errors:
+                    setattr(ticker, "_etrader_market_data_errors", list(captured_errors))
+                    if any(code in self._NONFATAL_MARKET_DATA_ERROR_CODES for code, _ in captured_errors):
+                        return ticker
+
                 if asyncio.get_running_loop().time() >= deadline:
+                    if captured_errors:
+                        setattr(ticker, "_etrader_market_data_errors", list(captured_errors))
                     return ticker
 
                 await asyncio.sleep(0.2)
         finally:
+            self._ib.errorEvent.disconnect(on_error)
             self._ib.cancelMktData(contract)
 
     async def request_delayed_market_data_with_retry(
@@ -429,6 +448,14 @@ class IBGatewayClient:
                         attempts,
                     )
                 return last_ticker
+            captured_errors = getattr(last_ticker, "_etrader_market_data_errors", [])
+            if captured_errors:
+                code, message = captured_errors[-1]
+                raise ValueError(
+                    f"Market data error {code} for symbol={symbol} "
+                    f"(exchange={contract.exchange}, primaryExchange={getattr(contract, 'primaryExchange', None)}): "
+                    f"{message}"
+                )
             if attempt < attempts:
                 self._logger.warning(
                     "Empty delayed market data for symbol=%s on attempt %s/%s; retrying",
