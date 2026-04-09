@@ -11,12 +11,8 @@ from app.services.products.base import ProductAdapter
 class StockProductAdapter(ProductAdapter):
     instrument_type = "stock"
 
-    async def qualify_contract(
-        self,
-        client,
-        spec: InstrumentContractSpec,
-    ) -> Contract:
-        await client.ensure_connected()
+    @staticmethod
+    def _candidate_specs(spec: InstrumentContractSpec) -> list[dict[str, str | None]]:
         candidate_specs: list[dict[str, str | None]] = []
 
         def add_candidate(*, exch: str, primary: str | None) -> None:
@@ -24,13 +20,38 @@ class StockProductAdapter(ProductAdapter):
             if candidate not in candidate_specs:
                 candidate_specs.append(candidate)
 
-        add_candidate(exch=spec.exchange, primary=spec.primary_exchange)
+        # For US equities, bare SMART requests are noisy and often rejected by IB
+        # without a primary exchange. Prefer qualified SMART/direct venue variants
+        # first so market data calls fail with the real entitlement error instead of
+        # spending cycles on invalid-contract retries.
+        should_try_explicit_first = (
+            spec.currency.upper() == "USD"
+            and (spec.exchange.upper() == "SMART" or not spec.exchange)
+            and not spec.primary_exchange
+        )
+
+        if not should_try_explicit_first:
+            add_candidate(exch=spec.exchange, primary=spec.primary_exchange)
 
         if spec.currency.upper() == "USD":
             for primary in [spec.primary_exchange, "NASDAQ", "ISLAND", "NYSE", "ARCA"]:
-                add_candidate(exch="SMART", primary=primary)
+                if primary:
+                    add_candidate(exch="SMART", primary=primary)
             for exch in ["NASDAQ", "ISLAND", "NYSE", "ARCA"]:
                 add_candidate(exch=exch, primary=None)
+
+        if should_try_explicit_first:
+            add_candidate(exch=spec.exchange, primary=spec.primary_exchange)
+
+        return candidate_specs
+
+    async def qualify_contract(
+        self,
+        client,
+        spec: InstrumentContractSpec,
+    ) -> Contract:
+        await client.ensure_connected()
+        candidate_specs = self._candidate_specs(spec)
 
         errors: list[str] = []
         for candidate in candidate_specs:
@@ -69,12 +90,24 @@ class StockProductAdapter(ProductAdapter):
     ):
         qualified_contract = await self.qualify_contract(client, spec)
         live_ticker = await client.request_market_data(qualified_contract, market_data_type=1)
+        live_errors = getattr(live_ticker, "_etrader_market_data_errors", [])
         if client.ticker_has_value(live_ticker):
             live_data_mode = client.ticker_data_mode(live_ticker)
             if live_data_mode == "live":
                 return {"ticker": live_ticker, "data_mode": "live"}
             if live_data_mode == "delayed":
                 return {"ticker": live_ticker, "data_mode": "delayed"}
+
+        # When the initial live request returns without prices and without any IB
+        # entitlement/error details, a second delayed reqMktData request can hang
+        # inside the underlying client call. Fail fast with a concrete unavailable
+        # state instead of letting higher layers hit long tool timeouts.
+        if not live_errors:
+            raise ValueError(
+                f"Live market data request returned no prices or entitlement details for "
+                f"symbol={spec.symbol} (exchange={qualified_contract.exchange}, "
+                f"primaryExchange={getattr(qualified_contract, 'primaryExchange', None)})"
+            )
 
         delayed_ticker = await client.request_delayed_market_data_with_retry(
             qualified_contract,

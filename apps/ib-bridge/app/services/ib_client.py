@@ -446,14 +446,43 @@ class IBGatewayClient:
 
     async def request_market_data(self, contract: Contract, *, market_data_type: int) -> Ticker:
         await self.ensure_connected()
+        symbol = getattr(contract, "symbol", None) or "?"
+        exchange = getattr(contract, "exchange", None) or "?"
+        primary_exchange = getattr(contract, "primaryExchange", None)
+        self._logger.info(
+            "Requesting market data symbol=%s exchange=%s primary_exchange=%s market_data_type=%s",
+            symbol,
+            exchange,
+            primary_exchange,
+            market_data_type,
+        )
         self._ib.reqMarketDataType(market_data_type)
-        ticker = self._ib.reqMktData(contract, "", False, False)
-        req_id = self._ib.wrapper.ticker2ReqId["mktData"].get(ticker)
+        try:
+            ticker = self._ib.reqMktData(contract, "", False, False)
+        except Exception as exc:
+            self._logger.exception(
+                "reqMktData failed symbol=%s exchange=%s primary_exchange=%s market_data_type=%s",
+                symbol,
+                exchange,
+                primary_exchange,
+                market_data_type,
+            )
+            raise
+        req_id = self._ib.wrapper.ticker2ReqId.get("mktData", {}).get(ticker)
         captured_errors: list[tuple[int, str]] = []
 
         def on_error(event_req_id: int, error_code: int, error_string: str, _contract: Contract | None):
             if event_req_id != req_id:
                 return
+            self._logger.warning(
+                "Market data event error symbol=%s exchange=%s primary_exchange=%s req_id=%s code=%s message=%s",
+                symbol,
+                exchange,
+                primary_exchange,
+                req_id,
+                error_code,
+                error_string,
+            )
             captured_errors.append((error_code, error_string))
 
         self._ib.errorEvent.connect(on_error)
@@ -461,22 +490,66 @@ class IBGatewayClient:
         try:
             while True:
                 if self.ticker_has_value(ticker):
+                    self._logger.info(
+                        "Market data resolved symbol=%s exchange=%s primary_exchange=%s req_id=%s market_data_type=%s data_mode=%s bid=%s ask=%s last=%s close=%s",
+                        symbol,
+                        exchange,
+                        primary_exchange,
+                        req_id,
+                        market_data_type,
+                        self.ticker_data_mode(ticker),
+                        ticker.bid,
+                        ticker.ask,
+                        ticker.last,
+                        ticker.close,
+                    )
                     return ticker
 
                 if captured_errors:
                     setattr(ticker, "_etrader_market_data_errors", list(captured_errors))
                     if any(code in self._NONFATAL_MARKET_DATA_ERROR_CODES for code, _ in captured_errors):
+                        self._logger.info(
+                            "Market data returning after nonfatal error symbol=%s exchange=%s primary_exchange=%s req_id=%s market_data_type=%s errors=%s",
+                            symbol,
+                            exchange,
+                            primary_exchange,
+                            req_id,
+                            market_data_type,
+                            captured_errors,
+                        )
                         return ticker
 
                 if asyncio.get_running_loop().time() >= deadline:
                     if captured_errors:
                         setattr(ticker, "_etrader_market_data_errors", list(captured_errors))
+                    self._logger.warning(
+                        "Market data timed out symbol=%s exchange=%s primary_exchange=%s req_id=%s market_data_type=%s errors=%s bid=%s ask=%s last=%s close=%s",
+                        symbol,
+                        exchange,
+                        primary_exchange,
+                        req_id,
+                        market_data_type,
+                        captured_errors,
+                        ticker.bid,
+                        ticker.ask,
+                        ticker.last,
+                        ticker.close,
+                    )
                     return ticker
 
                 await asyncio.sleep(0.2)
         finally:
             self._ib.errorEvent.disconnect(on_error)
-            self._ib.cancelMktData(contract)
+            try:
+                self._ib.cancelMktData(contract)
+            except Exception:
+                self._logger.exception(
+                    "cancelMktData failed symbol=%s exchange=%s primary_exchange=%s req_id=%s",
+                    symbol,
+                    exchange,
+                    primary_exchange,
+                    req_id,
+                )
 
     async def request_delayed_market_data_with_retry(
         self,
@@ -488,6 +561,14 @@ class IBGatewayClient:
     ) -> Ticker:
         last_ticker: Ticker | None = None
         for attempt in range(1, attempts + 1):
+            self._logger.info(
+                "Requesting delayed market data attempt symbol=%s exchange=%s primary_exchange=%s attempt=%s/%s",
+                symbol,
+                contract.exchange,
+                getattr(contract, "primaryExchange", None),
+                attempt,
+                attempts,
+            )
             last_ticker = await self.request_market_data(contract, market_data_type=3)
             if self.ticker_has_value(last_ticker):
                 if attempt > 1:

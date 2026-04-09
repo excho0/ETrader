@@ -394,7 +394,7 @@ class TradingService:
 
         try:
             value = await inflight
-        except Exception:
+        except BaseException:
             async with self._read_cache_lock:
                 current = self._read_inflight.get(key)
                 if current is inflight:
@@ -1148,11 +1148,25 @@ class TradingService:
         cache_key = self._instrument_cache_key("market_quote", spec)
         async def factory() -> MarketQuoteResponse:
             async with self._request_lock:
+                self._logger.info(
+                    "Starting market quote symbol=%s exchange=%s primary_exchange=%s cache_key=%s",
+                    spec.symbol,
+                    spec.exchange,
+                    spec.primary_exchange,
+                    cache_key,
+                )
                 closed_note = await asyncio.wait_for(
                     self._instrument_closed_note(spec),
                     timeout=self._settings.ib_market_data_timeout_seconds + 1.0,
                 )
                 if closed_note:
+                    self._logger.info(
+                        "Market quote unavailable due to closed venue symbol=%s exchange=%s primary_exchange=%s note=%s",
+                        spec.symbol,
+                        spec.exchange,
+                        spec.primary_exchange,
+                        closed_note,
+                    )
                     return MarketQuoteResponse(
                         instrument_type=spec.instrument_type,
                         symbol=spec.symbol,
@@ -1168,6 +1182,12 @@ class TradingService:
                         timeout=self._settings.ib_market_data_timeout_seconds + 1.0,
                     )
                 except asyncio.TimeoutError:
+                    self._logger.warning(
+                        "Market quote wrapper timed out symbol=%s exchange=%s primary_exchange=%s",
+                        spec.symbol,
+                        spec.exchange,
+                        spec.primary_exchange,
+                    )
                     return MarketQuoteResponse(
                         instrument_type=spec.instrument_type,
                         symbol=spec.symbol,
@@ -1181,6 +1201,13 @@ class TradingService:
                         ),
                     )
                 except ValueError as exc:
+                    self._logger.warning(
+                        "Market quote unavailable symbol=%s exchange=%s primary_exchange=%s detail=%s",
+                        spec.symbol,
+                        spec.exchange,
+                        spec.primary_exchange,
+                        exc,
+                    )
                     return MarketQuoteResponse(
                         instrument_type=spec.instrument_type,
                         symbol=spec.symbol,
@@ -1191,6 +1218,17 @@ class TradingService:
                         availability_note=str(exc),
                     )
 
+                self._logger.info(
+                    "Completed market quote symbol=%s exchange=%s primary_exchange=%s data_mode=%s bid=%s ask=%s last=%s close=%s",
+                    spec.symbol,
+                    spec.exchange,
+                    spec.primary_exchange,
+                    quote["data_mode"],
+                    quote["ticker"].bid,
+                    quote["ticker"].ask,
+                    quote["ticker"].last,
+                    quote["ticker"].close,
+                )
                 return MarketQuoteResponse(
                     instrument_type=spec.instrument_type,
                     symbol=spec.symbol,
