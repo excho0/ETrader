@@ -1,8 +1,8 @@
 # ETrader
 
-ETrader is the infrastructure repo for an AI-agent driven algorithmic trading stack built around OpenClaw and Interactive Brokers.
+ETrader is the infrastructure repo for an AI-agent driven algorithmic trading stack built around Interactive Brokers.
 
-The repo now ships a compose-managed stack for the core runtime, plus NixOS modules to manage that compose project declaratively the same way `estudio` does.
+The repo now ships a compose-managed stack for the core runtime, plus NixOS modules to manage that compose project declaratively.
 
 ## Scope
 
@@ -10,19 +10,18 @@ Current scope:
 - Nix flake exposing reusable NixOS modules
 - NixOS module for the ETrader docker compose stack
 - Optional standalone IB Gateway NixOS module for single-container use
-- Docker Compose stack for IB Gateway, trading API, and optional OpenClaw gateway
-- Monorepo scaffolding for OpenClaw and future trading services
+- Docker Compose stack for IB Gateway, TWS, and the trading API
+- Monorepo scaffolding for future trading services
 - Async trading API and MCP bridge for IB Gateway
 
 Planned scope:
-- OpenClaw services
 - AI agent runtimes for research, execution, and monitoring
 - Strategy orchestration and market data services
 - Risk controls and trading automation infrastructure
 
 ## Monorepo Layout
 
-The repository now follows the same top-level monorepo shape as `estudio`:
+The repository follows a straightforward top-level monorepo shape:
 
 - `apps/` for runnable applications and services
 - `packages/` for shared code and internal libraries
@@ -51,7 +50,7 @@ Import the aggregate module from a parent flake:
 }
 ```
 
-The compose module wraps `docker compose up -d` / `down` in a systemd-managed unit, mirroring the `estudio` pattern. Use exactly one backend profile, `gw` or `tws`, alongside `mcp` when you want the bridge and MCP endpoint.
+The compose module wraps `docker compose up -d` / `down` in a systemd-managed unit. Use exactly one backend profile, `gw` or `tws`, alongside `mcp` when you want the bridge and MCP endpoint.
 
 ## Compose Stack
 
@@ -61,13 +60,10 @@ Included services:
 - `ib-gateway` under the optional `gw` compose profile
 - `ib-tws` under the optional `tws` compose profile
 - `ib-bridge`
-- `openclaw-gateway` under the optional `openclaw` compose profile, pulled from the registry
 
 Persistent runtime state is stored under the project-local `data/` tree by default:
 - `data/ib-gateway/tws_settings`
 - `data/ib-tws`
-- `data/openclaw/config`
-- `data/openclaw/workspace`
 
 Local workflow:
 
@@ -84,7 +80,6 @@ Or through the root scripts:
 
 ```sh
 pnpm run compose:up
-pnpm run compose:up:full
 pnpm run compose:ps
 pnpm run compose:logs
 pnpm run compose:down
@@ -94,10 +89,7 @@ Profile behavior:
 
 - `compose:up` enables `gw` and `mcp`
 - `compose:up:gw` enables the `gw` profile only
-- `compose:up:gw:full` enables `gw`, `mcp`, and `openclaw`
 - `compose:up:tws` enables the `tws` profile so full Trader Workstation starts
-- `compose:up:full` enables `gw`, `mcp`, and `openclaw`
-- `compose:up:tws:full` enables `tws`, `mcp`, and `openclaw`
 - `compose:down` tears down the compose project
 
 The `gw` and `tws` profiles are intended to be mutually exclusive.
@@ -165,15 +157,6 @@ For persistence:
 - the standalone Nix `services.etrader.ibGateway` module mounts the same project-local path by default
 - `services.etrader.compose.dataRoot` can move the whole persistent tree elsewhere declaratively
 
-## OpenClaw Runtime
-
-OpenClaw is no longer vendored in this repo. The compose stack can pull it directly from the registry through:
-
-- `OPENCLAW_IMAGE`
-- `OPENCLAW_ENV_FILE`
-
-This keeps `etrader` focused on infrastructure and the trading bridge rather than tracking the OpenClaw source tree locally.
-
 ## Trading API
 
 Install dependencies:
@@ -220,7 +203,7 @@ The service is intentionally conservative. Real order submission is disabled by 
 
 ## Dev Shell
 
-Like `estudio`, this repo exposes a default Nix dev shell with the core tooling for the monorepo:
+This repo exposes a default Nix dev shell with the core tooling for the monorepo:
 
 ```sh
 nix develop
