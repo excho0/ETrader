@@ -46,31 +46,35 @@ Import the aggregate module from a parent flake:
   services.etrader.compose = {
     enable = true;
     environmentFiles = [ <compose-env-file> ];
-    profiles = [ "mcp" ];
+    profiles = [ "gw" "mcp" ];
   };
 }
 ```
 
-The compose module wraps `docker compose up -d` / `down` in a systemd-managed unit, mirroring the `estudio` pattern. By default it enables the `mcp` profile so the IB bridge and MCP endpoint come up for Codex.
+The compose module wraps `docker compose up -d` / `down` in a systemd-managed unit, mirroring the `estudio` pattern. Use exactly one backend profile, `gw` or `tws`, alongside `mcp` when you want the bridge and MCP endpoint.
 
 ## Compose Stack
 
 The root [docker-compose.yml](/home/void/projects/etrader/docker-compose.yml) is now the preferred runtime entrypoint.
 
 Included services:
-- `ib-gateway`
+- `ib-gateway` under the optional `gw` compose profile
+- `ib-tws` under the optional `tws` compose profile
 - `ib-bridge`
 - `openclaw-gateway` under the optional `openclaw` compose profile, pulled from the registry
 
 Persistent runtime state is stored under the project-local `data/` tree by default:
 - `data/ib-gateway/tws_settings`
+- `data/ib-tws`
 - `data/openclaw/config`
 - `data/openclaw/workspace`
 
 Local workflow:
 
 ```sh
-docker compose --profile mcp up -d --build
+docker compose --profile gw --profile mcp up -d --build
+docker compose --profile gw up -d
+docker compose --profile tws up -d
 docker compose ps
 docker compose logs -f
 docker compose down --remove-orphans
@@ -88,9 +92,15 @@ pnpm run compose:down
 
 Profile behavior:
 
-- `compose:up` enables the `mcp` profile so `ib-bridge` starts
-- `compose:up:full` enables both `mcp` and `openclaw`
+- `compose:up` enables `gw` and `mcp`
+- `compose:up:gw` enables the `gw` profile only
+- `compose:up:gw:full` enables `gw`, `mcp`, and `openclaw`
+- `compose:up:tws` enables the `tws` profile so full Trader Workstation starts
+- `compose:up:full` enables `gw`, `mcp`, and `openclaw`
+- `compose:up:tws:full` enables `tws`, `mcp`, and `openclaw`
 - `compose:down` tears down the compose project
+
+The `gw` and `tws` profiles are intended to be mutually exclusive.
 
 Compose override variables can live in a local root `.env`. Start from [`.env.example`](/home/void/projects/etrader/.env.example).
 
@@ -117,6 +127,27 @@ container recreation without masking the image's built-in bootstrap files.
 
 The legacy `services.etrader.ibGateway` module is still exported for cases where you want a single standalone container through `oci-containers`, but the compose stack is now the preferred path for this repo.
 
+## IB TWS
+
+The compose stack can also run full Trader Workstation through the optional `tws`
+profile using:
+
+- image: `ghcr.io/gnzsnz/tws-rdesktop:latest`
+- API ports: `7497` paper and `7496` live
+- RDP port: `3370`
+- config mount: `data/ib-tws`
+
+Use [ib-tws.env.example](/home/void/projects/etrader/ib-tws.env.example) as the
+template for the local runtime file.
+
+TWS and IB Gateway are alternative API endpoints. They do not chain together.
+You do not run TWS "through" the existing Gateway. The bridge connects to one
+backend or the other through the shared network alias `ib-api`.
+
+Both backend services publish the same Docker network alias, and the bridge
+defaults to `IB_HOST=ib-api`. Select which backend owns that alias by starting
+either the `gw` or `tws` profile, but not both at the same time.
+
 ## Environment Files
 
 Environment files should remain service-specific and should not be committed.
@@ -124,11 +155,13 @@ Environment files should remain service-specific and should not be committed.
 This repo ignores `*.env` files via [`.gitignore`](/home/void/projects/etrader/.gitignore). Keep sensitive values in a local runtime env file outside Git.
 
 Use [ib-gateway.env.example](/home/void/projects/etrader/ib-gateway.env.example) as the template for the local runtime file.
+Use [ib-tws.env.example](/home/void/projects/etrader/ib-tws.env.example) for the optional TWS runtime file.
 Use [apps/ib-bridge/.env.example](/home/void/projects/etrader/apps/ib-bridge/.env.example) for the IB bridge env file.
 Use [`.env.example`](/home/void/projects/etrader/.env.example) if you want compose-level path overrides.
 
 For persistence:
 - compose uses `data/ib-gateway/tws_settings` by default for IB Gateway settings
+- compose uses `data/ib-tws` by default for TWS settings and rdesktop state
 - the standalone Nix `services.etrader.ibGateway` module mounts the same project-local path by default
 - `services.etrader.compose.dataRoot` can move the whole persistent tree elsewhere declaratively
 
