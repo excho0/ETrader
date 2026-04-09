@@ -2,6 +2,7 @@ name: etrader
 
 services:
   ib-gateway:
+    profiles: ["gw"]
     image: ghcr.io/gnzsnz/ib-gateway:latest
     container_name: etrader-ib-gateway
     restart: unless-stopped
@@ -20,12 +21,38 @@ services:
     networks:
       etrader_net:
         ipv4_address: 172.30.0.2
+        aliases:
+          - ib-api
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/4002'"]
       interval: 30s
       timeout: 5s
       retries: 10
       start_period: 60s
+
+  ib-tws:
+    profiles: ["tws"]
+    image: ghcr.io/gnzsnz/tws-rdesktop:latest
+    container_name: etrader-ib-tws
+    restart: unless-stopped
+    ports:
+      - "7496:7498"
+      - "7497:7499"
+      - "3370:3389"
+    environment:
+      TWS_SETTINGS_PATH: ${IB_TWS_SETTINGS_PATH:-/config/tws_settings}
+      TWS_ACCEPT_INCOMING: "accept"
+      CUSTOM_CONFIG: "NO"
+    env_file:
+      - path: ${IB_TWS_ENV_FILE:-./ib-tws.env}
+        required: false
+    volumes:
+      - ${IB_TWS_DATA_DIR:-./data/ib-tws}:/config
+    networks:
+      etrader_net:
+        ipv4_address: 172.30.0.3
+        aliases:
+          - ib-api
 
   ib-bridge:
     profiles: ["mcp"]
@@ -34,9 +61,6 @@ services:
       dockerfile: ./apps/ib-bridge/Dockerfile
     container_name: etrader-ib-bridge
     restart: unless-stopped
-    depends_on:
-      ib-gateway:
-        condition: service_healthy
     ports:
       - "8040:8040"
     env_file:
@@ -44,7 +68,7 @@ services:
         required: false
     environment:
       API_HOST: 0.0.0.0
-      IB_HOST: ib-gateway
+      IB_HOST: ${IB_BACKEND_HOST:-ib-api}
       DATA_DIR: /data/ib-bridge
       MCP_HTTP_HOST: 0.0.0.0
       MCP_HTTP_PORT: 8040
