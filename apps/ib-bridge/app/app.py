@@ -30,12 +30,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         logger.info(
-            "Starting ib-bridge env=%s api=%s:%s ib=%s:%s auto_connect=%s",
+            "Starting ib-bridge env=%s api=%s:%s gateway=%s[%s/%s] tws=%s[%s/%s] auto_connect=%s",
             settings.env,
             settings.api_host,
             settings.api_port,
-            settings.ib_host,
-            settings.ib_port,
+            settings.ib_gateway_host,
+            settings.ib_gateway_paper_port,
+            settings.ib_gateway_live_port,
+            settings.ib_tws_host,
+            settings.ib_tws_paper_port,
+            settings.ib_tws_live_port,
             settings.auto_connect_on_startup,
         )
         async with mcp_session_manager.run():

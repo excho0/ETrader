@@ -32,10 +32,12 @@ class Settings(BaseSettings):
 
     ib_target_mode: Literal["paper", "live", "auto"] = "paper"
     ib_preferred_mode: Literal["paper", "live"] = "paper"
-    ib_host: str = "127.0.0.1"
-    ib_port: int | None = None
-    ib_paper_port: int = 4002
-    ib_live_port: int = 4001
+    ib_gateway_host: str = "127.0.0.1"
+    ib_gateway_paper_port: int = 4002
+    ib_gateway_live_port: int = 4001
+    ib_tws_host: str = "127.0.0.1"
+    ib_tws_paper_port: int = 7497
+    ib_tws_live_port: int = 7496
     ib_client_id: int = 11
     ib_read_only: bool = True
     ib_connect_timeout_seconds: float = 10.0
@@ -76,22 +78,16 @@ class Settings(BaseSettings):
     database_path_paper: str | None = None
     database_path_live: str | None = None
 
-    @field_validator("ib_port", "database_path_paper", "database_path_live", mode="before")
+    @field_validator(
+        "database_path_paper",
+        "database_path_live",
+        mode="before",
+    )
     @classmethod
     def normalize_optional_values(cls, value: object) -> object:
         if value in ("", None):
             return None
         return value
-
-    def resolved_ib_port(self, mode: Literal["paper", "live"] | None = None) -> int:
-        if self.ib_port is not None:
-            return self.ib_port
-
-        resolved_mode = mode
-        if resolved_mode is None:
-            resolved_mode = self.ib_preferred_mode if self.ib_target_mode == "auto" else self.ib_target_mode
-
-        return self.ib_paper_port if resolved_mode == "paper" else self.ib_live_port
 
     def resolved_database_mode(self) -> Literal["paper", "live"]:
         if self.ib_target_mode == "paper":
