@@ -32,7 +32,7 @@ services:
 
   ib-tws:
     profiles: ["tws"]
-    image: ghcr.io/gnzsnz/tws-rdesktop:latest
+    image: ghcr.io/gnzsnz/tws-rdesktop:stable
     container_name: etrader-ib-tws
     restart: unless-stopped
     ports:
@@ -42,7 +42,6 @@ services:
     environment:
       TWS_SETTINGS_PATH: ${IB_TWS_SETTINGS_PATH:-/config/tws_settings}
       TWS_ACCEPT_INCOMING: "accept"
-      CUSTOM_CONFIG: "NO"
     env_file:
       - path: ${IB_TWS_ENV_FILE:-./ib-tws.env}
         required: false
@@ -68,7 +67,12 @@ services:
         required: false
     environment:
       API_HOST: 0.0.0.0
-      IB_HOST: ${IB_BACKEND_HOST:-ib-api}
+      IB_GATEWAY_HOST: ib-gateway
+      IB_GATEWAY_PAPER_PORT: "4002"
+      IB_GATEWAY_LIVE_PORT: "4001"
+      IB_TWS_HOST: ib-tws
+      IB_TWS_PAPER_PORT: "7499"
+      IB_TWS_LIVE_PORT: "7498"
       DATA_DIR: /data/ib-bridge
       MCP_HTTP_HOST: 0.0.0.0
       MCP_HTTP_PORT: 8040
@@ -77,47 +81,6 @@ services:
     networks:
       etrader_net:
         ipv4_address: 172.30.0.10
-
-  openclaw-gateway:
-    profiles: ["openclaw"]
-    image: ${OPENCLAW_IMAGE:-ghcr.io/openclaw/openclaw:latest}
-    container_name: etrader-openclaw-gateway
-    restart: unless-stopped
-    depends_on:
-      ib-bridge:
-        condition: service_started
-    env_file:
-      - path: ${OPENCLAW_ENV_FILE:-./openclaw.env}
-        required: false
-    environment:
-      HOME: /home/node
-      TERM: xterm-256color
-      OPENCLAW_GATEWAY_BIND: ${OPENCLAW_GATEWAY_BIND:-lan}
-      OPENCLAW_GATEWAY_PORT: ${OPENCLAW_GATEWAY_PORT:-18789}
-      OPENCLAW_BRIDGE_PORT: ${OPENCLAW_BRIDGE_PORT:-18790}
-      OPENCLAW_CONFIG_DIR: /home/node/.openclaw
-      OPENCLAW_WORKSPACE_DIR: /home/node/.openclaw/workspace
-      TZ: ${OPENCLAW_TZ:-UTC}
-    volumes:
-      - ${OPENCLAW_CONFIG_DIR:-./data/openclaw/config}:/home/node/.openclaw
-      - ${OPENCLAW_WORKSPACE_DIR:-./data/openclaw/workspace}:/home/node/.openclaw/workspace
-    ports:
-      - "${OPENCLAW_GATEWAY_PORT:-18789}:18789"
-      - "${OPENCLAW_BRIDGE_PORT:-18790}:18790"
-    networks:
-      etrader_net:
-        ipv4_address: 172.30.0.20
-    init: true
-    command:
-      [
-        "node",
-        "dist/index.js",
-        "gateway",
-        "--bind",
-        "${OPENCLAW_GATEWAY_BIND:-lan}",
-        "--port",
-        "18789"
-      ]
 
 networks:
   etrader_net:
