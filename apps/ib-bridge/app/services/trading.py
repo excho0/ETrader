@@ -1729,7 +1729,9 @@ class TradingService:
         else:
             checks.append("Quantity is within configured max_order_quantity")
 
-        if request.order_type == "LMT" and request.limit_price is None:
+        effective_limit_price = request.limit_price or request.entry_limit_price
+
+        if request.order_type == "LMT" and effective_limit_price is None:
             blockers.append("LMT orders require limit_price")
         elif request.order_type == "LMT":
             checks.append("Limit order includes limit_price")
@@ -1757,7 +1759,12 @@ class TradingService:
             checks.append("Quote is using live market data")
 
         if not snapshot.quote_available:
-            blockers.append("No usable market quote is currently available for this symbol")
+            if self._settings.risk_allow_orders_without_quote:
+                warnings.append(
+                    "No usable market quote is currently available; execution is proceeding because risk_allow_orders_without_quote is enabled"
+                )
+            else:
+                blockers.append("No usable market quote is currently available for this symbol")
             if snapshot.availability_note:
                 warnings.append(snapshot.availability_note)
         else:
@@ -2953,8 +2960,8 @@ class TradingService:
     def _reference_price_for_order(*, snapshot: MarketSnapshotResponse, request: OrderPreviewRequest) -> float | None:
         if request.order_type == "BRACKET" and request.entry_limit_price is not None:
             return request.entry_limit_price
-        if request.order_type in {"LMT", "STP LMT"} and request.limit_price is not None:
-            return request.limit_price
+        if request.order_type in {"LMT", "STP LMT"}:
+            return request.limit_price or request.entry_limit_price
         if request.order_type == "STP" and request.stop_price is not None:
             return request.stop_price
         if snapshot.last is not None:

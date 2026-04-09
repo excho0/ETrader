@@ -299,7 +299,23 @@ class IBGatewayClient:
         use_rth: bool,
     ) -> list[object]:
         await self.ensure_connected()
-        try:
+        symbol = getattr(contract, "symbol", None) or symbol or "?"
+        exchange = getattr(contract, "exchange", None) or "?"
+        primary_exchange = getattr(contract, "primaryExchange", None)
+
+        async def fetch(*, market_data_type: int) -> list[object]:
+            self._logger.info(
+                "Requesting historical bars symbol=%s exchange=%s primary_exchange=%s market_data_type=%s timeframe=%s duration=%s what_to_show=%s use_rth=%s",
+                symbol,
+                exchange,
+                primary_exchange,
+                market_data_type,
+                timeframe,
+                duration,
+                what_to_show,
+                use_rth,
+            )
+            self._ib.reqMarketDataType(market_data_type)
             bars = await self._ib.reqHistoricalDataAsync(
                 contract,
                 endDateTime="",
@@ -311,14 +327,65 @@ class IBGatewayClient:
                 keepUpToDate=False,
                 timeout=self._settings.ib_request_timeout_seconds,
             )
+            normalized = list(bars or [])
+            self._logger.info(
+                "Historical bars response symbol=%s exchange=%s primary_exchange=%s market_data_type=%s bar_count=%s",
+                symbol,
+                exchange,
+                primary_exchange,
+                market_data_type,
+                len(normalized),
+            )
+            return normalized
+
+        try:
+            bars = await fetch(market_data_type=1)
+        except Exception as exc:
+            self._logger.warning(
+                "Live historical bars failed symbol=%s exchange=%s primary_exchange=%s timeframe=%s duration=%s error=%s",
+                symbol,
+                exchange,
+                primary_exchange,
+                timeframe,
+                duration,
+                exc,
+            )
+            try:
+                bars = await fetch(market_data_type=3)
+            except Exception as delayed_exc:
+                raise ValueError(
+                    f"Unable to load historical bars for symbol={symbol} "
+                    f"(exchange={exchange}, primaryExchange={primary_exchange}); "
+                    f"live_error={exc}; delayed_error={delayed_exc}"
+                ) from delayed_exc
+
+        if bars:
+            return bars
+
+        self._logger.warning(
+            "Live historical bars returned empty symbol=%s exchange=%s primary_exchange=%s timeframe=%s duration=%s; retrying delayed mode",
+            symbol,
+            exchange,
+            primary_exchange,
+            timeframe,
+            duration,
+        )
+
+        try:
+            delayed_bars = await fetch(market_data_type=3)
         except Exception as exc:
             raise ValueError(
-                f"Unable to load historical bars for symbol={symbol} "
-                f"(exchange={contract.exchange}, primaryExchange={getattr(contract, 'primaryExchange', None)}): "
-                f"{exc}"
+                f"Unable to load delayed historical bars for symbol={symbol} "
+                f"(exchange={exchange}, primaryExchange={primary_exchange}): {exc}"
             ) from exc
 
-        return list(bars or [])
+        if delayed_bars:
+            return delayed_bars
+
+        raise ValueError(
+            f"Historical bar request returned no usable bars for symbol={symbol} "
+            f"(exchange={exchange}, primaryExchange={primary_exchange}) in live or delayed mode"
+        )
 
     async def place_order(
         self,

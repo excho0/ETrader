@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     risk_max_daily_new_exposure: float = Field(default=100000.0, gt=0)
     risk_max_open_orders_per_symbol: int = Field(default=4, ge=0)
     risk_block_delayed_market_orders: bool = True
+    risk_allow_orders_without_quote: bool = False
     risk_max_market_spread_bps: float = Field(default=50.0, gt=0)
     risk_require_limit_for_wide_spread: bool = True
     risk_wide_spread_bps: float = Field(default=10.0, gt=0)
