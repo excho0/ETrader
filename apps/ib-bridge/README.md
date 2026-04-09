@@ -2,7 +2,7 @@
 
 Async-safe IB bridge and MCP layer for ETrader.
 
-This service sits between AI agents and Interactive Brokers Gateway. It is responsible for:
+This service sits between AI agents and Interactive Brokers API backends. It is responsible for:
 
 - connection lifecycle management
 - account and position reads
@@ -35,11 +35,17 @@ Use the mounted MCP endpoint from the same app process. Do not run ad hoc extern
 Typical local settings:
 
 ```sh
-IB_HOST=127.0.0.1
 IB_TARGET_MODE=auto
 IB_PREFERRED_MODE=live
-IB_PAPER_PORT=4002
-IB_LIVE_PORT=4001
+IB_GATEWAY_HOST=127.0.0.1
+IB_GATEWAY_PAPER_PORT=4002
+IB_GATEWAY_LIVE_PORT=4001
+# When running TWS through the compose container on the host, use the published
+# host ports 7497/7496. The compose-managed bridge container overrides these to
+# the image's internal forwarded ports 7499/7498 automatically.
+IB_TWS_HOST=127.0.0.1
+IB_TWS_PAPER_PORT=7497
+IB_TWS_LIVE_PORT=7496
 IB_CLIENT_ID=11
 IB_READ_ONLY=false
 ALLOW_PAPER_ORDERS=true
