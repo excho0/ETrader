@@ -118,7 +118,7 @@ in
       example = "/var/lib/etrader";
       description = ''
         Root directory for persistent compose-mounted data such as IB Gateway settings
-        and OpenClaw state.
+        and IB TWS state.
       '';
     };
 
@@ -131,7 +131,7 @@ in
     profiles = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       default = [ "mcp" ];
-      example = [ "mcp" "openclaw" ];
+      example = [ "tws" "mcp" ];
       description = "Compose profiles enabled for compose startup and shutdown.";
     };
 
@@ -214,8 +214,7 @@ in
         ExecStop = "${composeDownScript}/bin/etrader-compose-down";
         Environment = [
           "IB_GATEWAY_DATA_DIR=${cfg.dataRoot}/ib-gateway/tws_settings"
-          "OPENCLAW_CONFIG_DIR=${cfg.dataRoot}/openclaw/config"
-          "OPENCLAW_WORKSPACE_DIR=${cfg.dataRoot}/openclaw/workspace"
+          "IB_TWS_DATA_DIR=${cfg.dataRoot}/ib-tws"
         ];
         EnvironmentFile = cfg.environmentFiles;
       };
