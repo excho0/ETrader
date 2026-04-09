@@ -1610,10 +1610,14 @@ def main() -> None:
         backup_count=settings.log_backup_count,
     )
     logger.info(
-        "Starting ib-bridge stdio MCP env=%s ib=%s:%s client_id=%s auto_connect=%s",
+        "Starting ib-bridge stdio MCP env=%s gateway=%s[%s/%s] tws=%s[%s/%s] client_id=%s auto_connect=%s",
         settings.env,
-        settings.ib_host,
-        settings.resolved_ib_port(),
+        settings.ib_gateway_host,
+        settings.ib_gateway_paper_port,
+        settings.ib_gateway_live_port,
+        settings.ib_tws_host,
+        settings.ib_tws_paper_port,
+        settings.ib_tws_live_port,
         settings.ib_client_id,
         settings.auto_connect_on_startup,
     )

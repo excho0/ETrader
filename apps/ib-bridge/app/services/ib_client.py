@@ -16,6 +16,7 @@ class QuoteResult(TypedDict):
 
 
 class ConnectionTarget(TypedDict):
+    backend: str
     mode: Literal["paper", "live"]
     host: str
     port: int
@@ -30,6 +31,7 @@ class IBGatewayClient:
         self._lock = asyncio.Lock()
         self._logger = logging.getLogger("uvicorn.app.ib")
         self._connected_mode: Literal["paper", "live"] | None = None
+        self._connected_host: str | None = None
         self._connected_port: int | None = None
         self._connect_task: asyncio.Task[None] | None = None
 
@@ -49,8 +51,37 @@ class IBGatewayClient:
         return self._connected_mode
 
     @property
+    def connected_host(self) -> str | None:
+        return self._connected_host
+
+    @property
     def connected_port(self) -> int | None:
         return self._connected_port
+
+    def _iter_backend_targets(self, mode: Literal["paper", "live"]) -> list[ConnectionTarget]:
+        targets: list[ConnectionTarget] = []
+
+        def add_target(backend: str, host: str, port: int) -> None:
+            target: ConnectionTarget = {
+                "backend": backend,
+                "mode": mode,
+                "host": host,
+                "port": port,
+            }
+            if target not in targets:
+                targets.append(target)
+
+        add_target(
+            "gateway",
+            self._settings.ib_gateway_host,
+            self._settings.ib_gateway_paper_port if mode == "paper" else self._settings.ib_gateway_live_port,
+        )
+        add_target(
+            "tws",
+            self._settings.ib_tws_host,
+            self._settings.ib_tws_paper_port if mode == "paper" else self._settings.ib_tws_live_port,
+        )
+        return targets
 
     def connection_candidates(self) -> list[ConnectionTarget]:
         if self._settings.ib_target_mode == "paper":
@@ -71,14 +102,7 @@ class IBGatewayClient:
                 )
                 modes = [self._settings.ib_preferred_mode, fallback_mode]
 
-        return [
-            {
-                "mode": mode,
-                "host": self._settings.ib_host,
-                "port": self._settings.resolved_ib_port(mode),
-            }
-            for mode in modes
-        ]
+        return [candidate for mode in modes for candidate in self._iter_backend_targets(mode)]
 
     async def probe_socket(
         self,
@@ -88,8 +112,10 @@ class IBGatewayClient:
     ) -> None:
         reader = None
         writer = None
-        target_host = host or self._settings.ib_host
-        target_port = port or self._settings.resolved_ib_port()
+        if host is None or port is None:
+            raise ValueError("probe_socket requires explicit host and port")
+        target_host = host
+        target_port = port
         try:
             reader, writer = await asyncio.wait_for(
                 asyncio.open_connection(target_host, target_port),
@@ -111,7 +137,8 @@ class IBGatewayClient:
                     port=candidate["port"],
                 )
                 self._logger.info(
-                    "Connecting to IB target mode=%s host=%s port=%s client_id=%s",
+                    "Connecting to IB target backend=%s mode=%s host=%s port=%s client_id=%s",
+                    candidate["backend"],
                     candidate["mode"],
                     candidate["host"],
                     candidate["port"],
@@ -124,19 +151,25 @@ class IBGatewayClient:
                     timeout=self._settings.ib_connect_timeout_seconds,
                     readonly=self._settings.ib_read_only,
                 )
+                self._connected_host = candidate["host"]
                 self._connected_mode = candidate["mode"]
                 self._connected_port = candidate["port"]
                 self._logger.info(
-                    "Connected to IB target mode=%s host=%s port=%s",
+                    "Connected to IB target backend=%s mode=%s host=%s port=%s",
+                    candidate["backend"],
                     self._connected_mode,
                     candidate["host"],
                     self._connected_port,
                 )
                 return
             except Exception as exc:
+                self._connected_host = None
                 self._connected_mode = None
                 self._connected_port = None
-                detail = f"{candidate['mode']}@{candidate['host']}:{candidate['port']} -> {exc.__class__.__name__}"
+                detail = (
+                    f"{candidate['backend']}:{candidate['mode']}"
+                    f"@{candidate['host']}:{candidate['port']} -> {exc.__class__.__name__}"
+                )
                 message = str(exc).strip()
                 if message:
                     detail = f"{detail}: {message}"
@@ -193,6 +226,7 @@ class IBGatewayClient:
         async with self._lock:
             if self._ib.isConnected():
                 self._ib.disconnect()
+            self._connected_host = None
             self._connected_mode = None
             self._connected_port = None
 

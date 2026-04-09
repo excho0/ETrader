@@ -248,18 +248,23 @@ class TradingService:
         tcp_reachable = False
         ib_connected = self._client.is_connected()
         handshake_error: str | None = None
-        probe_port = self._client.connected_port or self._settings.resolved_ib_port()
+        candidates = self._client.connection_candidates()
+        if not candidates:
+            raise TradingConnectionError("No IB connection candidates are configured")
+        probe_target = candidates[0]
+        probe_host = self._client.connected_host or probe_target["host"]
+        probe_port = self._client.connected_port or probe_target["port"]
 
         try:
             await self._client.probe_socket(
-                host=self._settings.ib_host,
+                host=probe_host,
                 port=probe_port,
             )
             tcp_reachable = True
         except Exception as exc:
             handshake_error = f"tcp_probe_failed: {self._format_exception_detail(exc)}"
             return ConnectivityProbeResponse(
-                host=self._settings.ib_host,
+                host=probe_host,
                 port=probe_port,
                 client_id=self._settings.ib_client_id,
                 tcp_reachable=tcp_reachable,
@@ -274,7 +279,7 @@ class TradingService:
             handshake_error = self._format_exception_detail(exc)
 
         return ConnectivityProbeResponse(
-            host=self._settings.ib_host,
+            host=probe_host,
             port=probe_port,
             client_id=self._settings.ib_client_id,
             tcp_reachable=tcp_reachable,
@@ -305,8 +310,8 @@ class TradingService:
             connected=connected,
             target_mode=self._settings.ib_target_mode,
             connected_mode=self._client.connected_mode,
-            host=self._settings.ib_host,
-            port=self._client.connected_port or self._settings.resolved_ib_port(),
+            host=self._client.connected_host or self._client.connection_candidates()[0]["host"],
+            port=self._client.connected_port or self._client.connection_candidates()[0]["port"],
             client_id=self._settings.ib_client_id,
             managed_accounts=accounts,
             reconnect_state=self._runtime.reconnect_state,
