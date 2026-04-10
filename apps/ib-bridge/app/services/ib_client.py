@@ -24,6 +24,7 @@ class ConnectionTarget(TypedDict):
 
 class IBGatewayClient:
     _NONFATAL_MARKET_DATA_ERROR_CODES = frozenset({200, 300, 354, 10089, 10167})
+    _HISTORICAL_IP_CONFLICT_FRAGMENT = "Trading TWS session is connected from a different IP address"
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
@@ -338,6 +339,27 @@ class IBGatewayClient:
         primary_exchange = getattr(contract, "primaryExchange", None)
 
         async def fetch(*, market_data_type: int) -> list[object]:
+            captured_errors: list[tuple[int, str]] = []
+
+            def on_error(
+                event_req_id: int,
+                error_code: int,
+                error_string: str,
+                _contract: Contract | None,
+            ) -> None:
+                if error_code != 162:
+                    return
+                self._logger.warning(
+                    "Historical bars event error symbol=%s exchange=%s primary_exchange=%s req_id=%s code=%s message=%s",
+                    symbol,
+                    exchange,
+                    primary_exchange,
+                    event_req_id,
+                    error_code,
+                    error_string,
+                )
+                captured_errors.append((error_code, error_string))
+
             self._logger.info(
                 "Requesting historical bars symbol=%s exchange=%s primary_exchange=%s market_data_type=%s timeframe=%s duration=%s what_to_show=%s use_rth=%s",
                 symbol,
@@ -350,17 +372,21 @@ class IBGatewayClient:
                 use_rth,
             )
             self._ib.reqMarketDataType(market_data_type)
-            bars = await self._ib.reqHistoricalDataAsync(
-                contract,
-                endDateTime="",
-                durationStr=duration,
-                barSizeSetting=timeframe,
-                whatToShow=what_to_show,
-                useRTH=use_rth,
-                formatDate=1,
-                keepUpToDate=False,
-                timeout=self._settings.ib_request_timeout_seconds,
-            )
+            self._ib.errorEvent.connect(on_error)
+            try:
+                bars = await self._ib.reqHistoricalDataAsync(
+                    contract,
+                    endDateTime="",
+                    durationStr=duration,
+                    barSizeSetting=timeframe,
+                    whatToShow=what_to_show,
+                    useRTH=use_rth,
+                    formatDate=1,
+                    keepUpToDate=False,
+                    timeout=self._settings.ib_request_timeout_seconds,
+                )
+            finally:
+                self._ib.errorEvent.disconnect(on_error)
             normalized = list(bars or [])
             self._logger.info(
                 "Historical bars response symbol=%s exchange=%s primary_exchange=%s market_data_type=%s bar_count=%s",
@@ -370,6 +396,10 @@ class IBGatewayClient:
                 market_data_type,
                 len(normalized),
             )
+            if not normalized:
+                for _, error_string in captured_errors:
+                    if self._HISTORICAL_IP_CONFLICT_FRAGMENT in error_string:
+                        raise RuntimeError(error_string)
             return normalized
 
         try:
