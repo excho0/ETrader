@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from app.core.config import Settings
 from app.core.instrument_types import InstrumentType
 from app.db import (
-    ApprovalRecordStore,
+    ApprovalMandateStore,
     AuditEventRecord,
     IdempotencyRecord,
     OrderLifecycleRecord,
@@ -35,7 +35,8 @@ from app.models.trading import (
     AccountSummaryResponse,
     AccountValue,
     ApprovalDecisionRequest,
-    ApprovalRequestResponse,
+    ApprovalMandateRequest,
+    ApprovalMandateResponse,
     AuditBehaviorBreakdownItem,
     AuditBehaviorSummaryResponse,
     AuditEventResponse,
@@ -68,6 +69,7 @@ from app.models.trading import (
     PolicyProfileResponse,
     PortfolioRiskItem,
     PortfolioRiskSnapshotResponse,
+    PositionExitOcaRequest,
     PositionSnapshotResponse,
     PositionActionPlanResponse,
     PositionResponse,
@@ -107,23 +109,31 @@ class PolicyProfile:
 
 
 @dataclass
-class ApprovalRecord:
-    approval_id: str
+class ApprovalMandate:
+    mandate_id: str
     status: str
     created_at: datetime
     expires_at: datetime
-    request: OrderPreviewRequest
-    policy_decision: str
-    approval_required: bool
-    guardrails: ExecutionGuardrailsResponse
+    instrument_type: InstrumentType
+    target_mode: str
+    symbols: list[str]
+    actions: list[str]
+    max_order_notional: float
+    max_uses: int
+    uses_consumed: int
     note: str | None = None
     requester: str | None = None
     approved_by: str | None = None
+    request: OrderPreviewRequest | None = None
+    policy_decision: str | None = None
+    approval_required: bool | None = None
+    guardrails: ExecutionGuardrailsResponse | None = None
+    request_context: dict[str, object] = field(default_factory=dict)
 
 
 @dataclass
 class TradingRuntime:
-    approval_records: dict[str, ApprovalRecord] = field(default_factory=dict)
+    approval_mandates: dict[str, ApprovalMandate] = field(default_factory=dict)
     recent_policy_blocks: deque[str] = field(default_factory=lambda: deque(maxlen=20))
     reconnect_state: str | None = None
     last_broker_sync_at: datetime | None = None
@@ -1736,6 +1746,14 @@ class TradingService:
 
         effective_limit_price = request.limit_price or request.entry_limit_price
 
+        if request.order_type != "BRACKET" and request.take_profit_price is not None:
+            blockers.append(
+                "take_profit_price is only supported on BRACKET orders or the position exit OCA endpoint"
+            )
+
+        if request.order_type not in {"STP", "STP LMT", "BRACKET"} and request.stop_price is not None:
+            blockers.append("stop_price is only supported on stop, stop-limit, BRACKET, or position exit OCA orders")
+
         if request.order_type == "LMT" and effective_limit_price is None:
             blockers.append("LMT orders require limit_price")
         elif request.order_type == "LMT":
@@ -2041,6 +2059,104 @@ class TradingService:
         normalized = await self._normalize_reduce_position_request(request)
         return await self.submit_order(normalized)
 
+    async def submit_position_exit_oca(self, request: PositionExitOcaRequest) -> OrderSubmissionResponse:
+        if not self._settings.allow_paper_orders:
+            raise TradingValidationError("Order submission is disabled by configuration")
+        self._assert_live_order_submission_allowed()
+        if self._settings.ib_read_only:
+            raise TradingValidationError(
+                "Broker connection is configured read-only; side-effecting order submission is blocked"
+            )
+        if request.take_profit_price <= request.stop_loss_price:
+            raise TradingValidationError("Long OCA exit requires take_profit_price above stop_loss_price")
+
+        exposure = await self.get_symbol_exposure(
+            instrument_type=request.instrument_type,
+            symbol=request.symbol,
+            exchange=request.exchange,
+            currency=request.currency,
+            primary_exchange=request.primary_exchange,
+        )
+        if exposure.current_position <= 0:
+            raise TradingValidationError(
+                "Position exit OCA currently supports reducing an existing long position only"
+            )
+        if request.quantity > exposure.current_position:
+            raise TradingValidationError(
+                "Requested OCA exit quantity "
+                f"{request.quantity} exceeds current long position size {exposure.current_position}"
+            )
+        if exposure.open_sell_quantity > 0:
+            raise TradingValidationError(
+                "Cannot submit OCA exit while open sell orders already exist for this symbol; cancel or replace them first"
+            )
+
+        async with self._runtime.idempotency_lock:
+            replay = self._idempotent_replay(request.client_request_id)
+            if replay is not None:
+                return replay
+            if request.client_request_id and request.client_request_id in self._runtime.pending_request_ids:
+                raise TradingValidationError(
+                    f"A submission with client_request_id={request.client_request_id} is already in progress"
+                )
+            if request.client_request_id:
+                self._runtime.pending_request_ids.add(request.client_request_id)
+
+        try:
+            async with self._request_lock:
+                oca_group, take_profit_trade, stop_loss_trade = await self._client.place_position_exit_oca(
+                    instrument_type=request.instrument_type,
+                    symbol=request.symbol,
+                    quantity=request.quantity,
+                    exchange=request.exchange,
+                    currency=request.currency,
+                    primary_exchange=request.primary_exchange,
+                    take_profit_price=request.take_profit_price,
+                    stop_loss_price=request.stop_loss_price,
+                    time_in_force=request.time_in_force,
+                )
+            order_id = f"{take_profit_trade.order.orderId}:{stop_loss_trade.order.orderId}"
+            status = f"{take_profit_trade.orderStatus.status}/{stop_loss_trade.orderStatus.status}"
+            response = OrderSubmissionResponse(
+                instrument_type=request.instrument_type,
+                order_id=order_id,
+                status=status,
+                symbol=request.symbol,
+                action="SELL",
+                quantity=request.quantity,
+                order_type="OCA",
+                limit_price=request.take_profit_price,
+                stop_price=request.stop_loss_price,
+                take_profit_price=request.take_profit_price,
+                time_in_force=request.time_in_force,
+                client_request_id=request.client_request_id,
+                idempotent_replay=False,
+            )
+            await self._write_audit_event(
+                "position_exit_oca_submitted",
+                {
+                    "symbol": request.symbol,
+                    "order_id": order_id,
+                    "oca_group": oca_group,
+                    "take_profit_order_id": str(take_profit_trade.order.orderId),
+                    "stop_loss_order_id": str(stop_loss_trade.order.orderId),
+                    "response": response.model_dump(),
+                    "requester": request.requester,
+                    "request_source": request.request_source,
+                    "agent_id": request.agent_id,
+                    "run_id": request.run_id,
+                    "strategy_id": request.strategy_id,
+                    "client_request_id": request.client_request_id,
+                },
+            )
+            self._record_order_lifecycle_from_submission(response, "position_exit_oca_submitted")
+            self._store_idempotency_result(request.client_request_id, response)
+            return response
+        finally:
+            if request.client_request_id:
+                async with self._runtime.idempotency_lock:
+                    self._runtime.pending_request_ids.discard(request.client_request_id)
+
     async def preview_order(self, request: OrderPreviewRequest) -> OrderPreviewResponse:
         guardrails = await self.get_execution_guardrails(request)
         warnings = list(guardrails.warnings) + list(guardrails.blockers)
@@ -2080,7 +2196,9 @@ class TradingService:
             if guardrails.policy_decision == "blocked":
                 raise TradingValidationError("; ".join(guardrails.blockers) or "Order blocked by guardrails")
             if guardrails.policy_decision == "allowed_with_approval":
-                raise TradingValidationError("Order requires approval before submission")
+                mandate = await self._consume_matching_approval_mandate(request, guardrails)
+                if mandate is None:
+                    raise TradingValidationError("Order requires approval before submission")
 
             submission = await self._submit_normalized_order(request)
             self._store_idempotency_result(request.client_request_id, submission)
@@ -2099,103 +2217,92 @@ class TradingService:
                 async with self._runtime.idempotency_lock:
                     self._runtime.pending_request_ids.discard(request.client_request_id)
 
-    async def create_approval_request(self, request: OrderPreviewRequest) -> ApprovalRequestResponse:
-        guardrails = await self.get_execution_guardrails(request)
-        if guardrails.policy_decision == "blocked":
-            raise TradingValidationError("; ".join(guardrails.blockers) or "Order blocked by guardrails")
-
+    async def create_approval_mandate(self, request: ApprovalMandateRequest) -> ApprovalMandateResponse:
         now = datetime.now(UTC)
-        approval_id = str(uuid4())
-        record = ApprovalRecord(
-            approval_id=approval_id,
+        expires_at = now + timedelta(
+            seconds=request.expires_in_seconds if request.expires_in_seconds is not None else self._settings.approval_ttl_seconds
+        )
+        mandate = ApprovalMandate(
+            mandate_id=str(uuid4()),
             status="pending",
             created_at=now,
-            expires_at=now + timedelta(seconds=self._settings.approval_ttl_seconds),
-            request=request,
-            policy_decision=guardrails.policy_decision,
-            approval_required=guardrails.approval_required,
-            guardrails=guardrails,
-            note=None,
+            expires_at=expires_at,
+            instrument_type=request.instrument_type,
+            target_mode=request.target_mode,
+            symbols=[symbol.upper() for symbol in request.symbols],
+            actions=[action.upper() for action in request.actions],
+            max_order_notional=request.max_order_notional,
+            max_uses=request.max_uses,
+            uses_consumed=0,
             requester=request.requester,
-        )
-        async with self._runtime.approval_lock:
-            self._runtime.approval_records[approval_id] = record
-        self._persist_approval_record(record)
-        self._audit_logger.info("approval_created id=%s symbol=%s order_type=%s", approval_id, request.symbol, request.order_type)
-        await self._write_audit_event(
-            "approval_created",
-            {
-                **self._audit_context_from_request(request),
-                "approval_id": approval_id,
-                "symbol": request.symbol,
-                "order_type": request.order_type,
+            request_context={
+                "requester": request.requester,
+                "request_source": request.request_source,
+                "agent_id": request.agent_id,
+                "run_id": request.run_id,
+                "strategy_id": request.strategy_id,
             },
         )
-        return self._approval_response(record)
-
-    async def get_approval_request(self, approval_id: str) -> ApprovalRequestResponse:
-        record = self._approval_record(approval_id)
-        return self._approval_response(record)
-
-    async def approve_request(self, approval_id: str, decision: ApprovalDecisionRequest) -> ApprovalRequestResponse:
         async with self._runtime.approval_lock:
-            record = self._approval_record(approval_id)
-            self._assert_approval_active(record)
-            record.status = "approved"
-            record.note = decision.note
-            record.approved_by = decision.actor
-            self._persist_approval_record(record)
-        self._audit_logger.info("approval_approved id=%s actor=%s", approval_id, decision.actor)
+            self._runtime.approval_mandates[mandate.mandate_id] = mandate
+        self._persist_approval_mandate(mandate)
         await self._write_audit_event(
-            "approval_approved",
-            {"approval_id": approval_id, "actor": decision.actor, "note": decision.note},
-        )
-        return self._approval_response(record)
-
-    async def reject_request(self, approval_id: str, decision: ApprovalDecisionRequest) -> ApprovalRequestResponse:
-        async with self._runtime.approval_lock:
-            record = self._approval_record(approval_id)
-            self._assert_approval_active(record)
-            record.status = "rejected"
-            record.note = decision.note
-            record.approved_by = decision.actor
-            self._persist_approval_record(record)
-        self._audit_logger.info("approval_rejected id=%s actor=%s", approval_id, decision.actor)
-        await self._write_audit_event(
-            "approval_rejected",
-            {"approval_id": approval_id, "actor": decision.actor, "note": decision.note},
-        )
-        return self._approval_response(record)
-
-    async def submit_approved_request(self, approval_id: str) -> OrderSubmissionResponse:
-        if not self._settings.allow_paper_orders:
-            raise TradingValidationError("Order submission is disabled by configuration")
-        self._assert_live_order_submission_allowed()
-        async with self._runtime.approval_lock:
-            record = self._approval_record(approval_id)
-            if record.status != "approved":
-                raise TradingValidationError("Approval request is not approved")
-            if record.expires_at <= datetime.now(UTC):
-                record.status = "expired"
-                self._persist_approval_record(record)
-                raise TradingValidationError("Approval request has expired")
-        submission = await self._submit_normalized_order(record.request)
-        self._store_idempotency_result(record.request.client_request_id, submission)
-        async with self._runtime.approval_lock:
-            record.status = "submitted"
-            self._persist_approval_record(record)
-        self._audit_logger.info("approval_submitted id=%s order_id=%s", approval_id, submission.order_id)
-        await self._write_audit_event(
-            "approval_submitted",
+            "approval_mandate_created",
             {
-                **self._audit_context_from_request(record.request),
-                "approval_id": approval_id,
-                "client_request_id": record.request.client_request_id,
-                "response": submission.model_dump(),
+                **mandate.request_context,
+                "mandate_id": mandate.mandate_id,
+                "target_mode": mandate.target_mode,
+                "max_order_notional": mandate.max_order_notional,
+                "max_uses": mandate.max_uses,
             },
         )
-        self._record_order_lifecycle_from_submission(submission, "approval_submitted")
-        return submission
+        return self._approval_mandate_response(mandate)
+
+    async def get_approval_mandate(self, mandate_id: str) -> ApprovalMandateResponse:
+        return self._approval_mandate_response(self._approval_mandate_record(mandate_id))
+
+    async def approve_mandate(self, mandate_id: str, decision: ApprovalDecisionRequest) -> ApprovalMandateResponse:
+        async with self._runtime.approval_lock:
+            mandate = self._approval_mandate_record(mandate_id)
+            self._assert_mandate_pending(mandate)
+            mandate.status = "approved"
+            mandate.note = decision.note
+            mandate.approved_by = decision.actor
+            self._persist_approval_mandate(mandate)
+        await self._write_audit_event(
+            "approval_mandate_approved",
+            {"mandate_id": mandate_id, "actor": decision.actor, "note": decision.note},
+        )
+        return self._approval_mandate_response(mandate)
+
+    async def reject_mandate(self, mandate_id: str, decision: ApprovalDecisionRequest) -> ApprovalMandateResponse:
+        async with self._runtime.approval_lock:
+            mandate = self._approval_mandate_record(mandate_id)
+            self._assert_mandate_pending(mandate)
+            mandate.status = "rejected"
+            mandate.note = decision.note
+            mandate.approved_by = decision.actor
+            self._persist_approval_mandate(mandate)
+        await self._write_audit_event(
+            "approval_mandate_rejected",
+            {"mandate_id": mandate_id, "actor": decision.actor, "note": decision.note},
+        )
+        return self._approval_mandate_response(mandate)
+
+    async def revoke_mandate(self, mandate_id: str, decision: ApprovalDecisionRequest) -> ApprovalMandateResponse:
+        async with self._runtime.approval_lock:
+            mandate = self._approval_mandate_record(mandate_id)
+            if mandate.status not in {"approved", "pending"}:
+                raise TradingValidationError(f"Approval mandate cannot be revoked from status={mandate.status}")
+            mandate.status = "revoked"
+            mandate.note = decision.note
+            mandate.approved_by = decision.actor
+            self._persist_approval_mandate(mandate)
+        await self._write_audit_event(
+            "approval_mandate_revoked",
+            {"mandate_id": mandate_id, "actor": decision.actor, "note": decision.note},
+        )
+        return self._approval_mandate_response(mandate)
 
     async def cancel_order(self, order_id: str) -> OrderCancellationResponse:
         try:
@@ -2590,42 +2697,49 @@ class TradingService:
                 "Live order submission is disabled by configuration. Set ALLOW_LIVE_ORDERS=true only after completing the live trading runbook."
             )
 
-    def _approval_response(self, record: ApprovalRecord) -> ApprovalRequestResponse:
-        return ApprovalRequestResponse(
-            approval_id=record.approval_id,
-            status=record.status,
-            created_at=record.created_at.isoformat(),
-            expires_at=record.expires_at.isoformat(),
-            request=record.request,
-            policy_decision=record.policy_decision,
-            approval_required=record.approval_required,
-            guardrails=record.guardrails,
-            note=record.note,
-            requester=record.requester,
+    def _approval_mandate_response(self, mandate: ApprovalMandate) -> ApprovalMandateResponse:
+        return ApprovalMandateResponse(
+            instrument_type=mandate.instrument_type,
+            mandate_id=mandate.mandate_id,
+            status=mandate.status,
+            created_at=mandate.created_at.isoformat(),
+            expires_at=mandate.expires_at.isoformat(),
+            target_mode=mandate.target_mode,
+            symbols=mandate.symbols,
+            actions=mandate.actions,
+            max_order_notional=mandate.max_order_notional,
+            max_uses=mandate.max_uses,
+            uses_consumed=mandate.uses_consumed,
+            note=mandate.note,
+            requester=mandate.requester,
+            approved_by=mandate.approved_by,
         )
 
-    def _approval_record(self, approval_id: str) -> ApprovalRecord:
-        record = self._runtime.approval_records.get(approval_id)
-        if record is None:
-            raise TradingValidationError(f"Unknown approval_id={approval_id}")
-        if record.status not in {"submitted", "expired"} and record.expires_at <= datetime.now(UTC):
-            record.status = "expired"
-            self._persist_approval_record(record)
-        return record
+    def _approval_mandate_record(self, mandate_id: str) -> ApprovalMandate:
+        mandate = self._runtime.approval_mandates.get(mandate_id)
+        if mandate is None:
+            raise TradingValidationError(f"Unknown mandate_id={mandate_id}")
+        if mandate.status not in {"consumed", "expired", "rejected", "revoked"} and mandate.expires_at <= datetime.now(UTC):
+            mandate.status = "expired"
+            self._persist_approval_mandate(mandate)
+        if mandate.status == "approved" and mandate.uses_consumed >= mandate.max_uses:
+            mandate.status = "consumed"
+            self._persist_approval_mandate(mandate)
+        return mandate
 
     @staticmethod
-    def _assert_approval_active(record: ApprovalRecord) -> None:
-        if record.status != "pending":
-            raise TradingValidationError(f"Approval request is not pending: status={record.status}")
-        if record.expires_at <= datetime.now(UTC):
-            record.status = "expired"
-            raise TradingValidationError("Approval request has expired")
+    def _assert_mandate_pending(mandate: ApprovalMandate) -> None:
+        if mandate.status != "pending":
+            raise TradingValidationError(f"Approval mandate is not pending: status={mandate.status}")
+        if mandate.expires_at <= datetime.now(UTC):
+            mandate.status = "expired"
+            raise TradingValidationError("Approval mandate has expired")
 
     def _approval_queue_count(self) -> int:
         now = datetime.now(UTC)
         count = 0
-        for record in self._runtime.approval_records.values():
-            if record.status == "pending" and record.expires_at > now:
+        for mandate in self._runtime.approval_mandates.values():
+            if mandate.status == "pending" and mandate.expires_at > now:
                 count += 1
         return count
 
@@ -2659,33 +2773,47 @@ class TradingService:
         ).execute()
 
     @staticmethod
-    def _persist_approval_record(record: ApprovalRecord) -> None:
-        request_payload = _model_payload(record.request)
-        guardrails_payload = _model_payload(record.guardrails)
-        ApprovalRecordStore.insert(
-            approval_id=record.approval_id,
-            status=record.status,
-            created_at=record.created_at,
-            expires_at=record.expires_at,
-            request_json=dump_json(request_payload),
-            policy_decision=record.policy_decision,
-            approval_required=record.approval_required,
-            guardrails_json=dump_json(guardrails_payload),
-            note=record.note,
-            requester=record.requester,
-            approved_by=record.approved_by,
+    def _persist_approval_mandate(mandate: ApprovalMandate) -> None:
+        request_payload = _model_payload(mandate.request) if mandate.request is not None else None
+        guardrails_payload = _model_payload(mandate.guardrails) if mandate.guardrails is not None else None
+        ApprovalMandateStore.insert(
+            mandate_id=mandate.mandate_id,
+            status=mandate.status,
+            created_at=mandate.created_at,
+            expires_at=mandate.expires_at,
+            instrument_type=str(mandate.instrument_type),
+            target_mode=mandate.target_mode,
+            symbols_json=dump_json({"symbols": mandate.symbols}),
+            actions_json=dump_json({"actions": mandate.actions}),
+            max_order_notional=str(mandate.max_order_notional),
+            max_uses=str(mandate.max_uses),
+            uses_consumed=str(mandate.uses_consumed),
+            note=mandate.note,
+            requester=mandate.requester,
+            approved_by=mandate.approved_by,
+            request_json=dump_json(request_payload) if request_payload is not None else None,
+            policy_decision=mandate.policy_decision,
+            approval_required=mandate.approval_required,
+            guardrails_json=dump_json(guardrails_payload) if guardrails_payload is not None else None,
+            request_context_json=dump_json(mandate.request_context),
         ).on_conflict(
-            conflict_target=[ApprovalRecordStore.approval_id],
+            conflict_target=[ApprovalMandateStore.mandate_id],
             update={
-                ApprovalRecordStore.status: record.status,
-                ApprovalRecordStore.expires_at: record.expires_at,
-                ApprovalRecordStore.request_json: dump_json(request_payload),
-                ApprovalRecordStore.policy_decision: record.policy_decision,
-                ApprovalRecordStore.approval_required: record.approval_required,
-                ApprovalRecordStore.guardrails_json: dump_json(guardrails_payload),
-                ApprovalRecordStore.note: record.note,
-                ApprovalRecordStore.requester: record.requester,
-                ApprovalRecordStore.approved_by: record.approved_by,
+                ApprovalMandateStore.status: mandate.status,
+                ApprovalMandateStore.expires_at: mandate.expires_at,
+                ApprovalMandateStore.symbols_json: dump_json({"symbols": mandate.symbols}),
+                ApprovalMandateStore.actions_json: dump_json({"actions": mandate.actions}),
+                ApprovalMandateStore.max_order_notional: str(mandate.max_order_notional),
+                ApprovalMandateStore.max_uses: str(mandate.max_uses),
+                ApprovalMandateStore.uses_consumed: str(mandate.uses_consumed),
+                ApprovalMandateStore.note: mandate.note,
+                ApprovalMandateStore.requester: mandate.requester,
+                ApprovalMandateStore.approved_by: mandate.approved_by,
+                ApprovalMandateStore.request_json: dump_json(request_payload) if request_payload is not None else None,
+                ApprovalMandateStore.policy_decision: mandate.policy_decision,
+                ApprovalMandateStore.approval_required: mandate.approval_required,
+                ApprovalMandateStore.guardrails_json: dump_json(guardrails_payload) if guardrails_payload is not None else None,
+                ApprovalMandateStore.request_context_json: dump_json(mandate.request_context),
             },
         ).execute()
 
@@ -2713,6 +2841,69 @@ class TradingService:
                 payload_json=dump_json(payload),
             ).execute()
 
+    async def _consume_matching_approval_mandate(
+        self,
+        request: OrderPreviewRequest,
+        guardrails: ExecutionGuardrailsResponse,
+    ) -> ApprovalMandate | None:
+        connected_mode = self._client.connected_mode or self._settings.target_mode
+        estimated_notional = guardrails.estimated_notional
+        if estimated_notional is None or estimated_notional <= 0:
+            return None
+
+        async with self._runtime.approval_lock:
+            for mandate in self._runtime.approval_mandates.values():
+                if not self._mandate_matches_request(mandate, request, connected_mode, estimated_notional):
+                    continue
+                mandate.uses_consumed += 1
+                if mandate.uses_consumed >= mandate.max_uses:
+                    mandate.status = "consumed"
+                self._persist_approval_mandate(mandate)
+                await self._write_audit_event(
+                    "approval_mandate_consumed",
+                    {
+                        **mandate.request_context,
+                        **self._audit_context_from_request(request),
+                        "mandate_id": mandate.mandate_id,
+                        "symbol": request.symbol,
+                        "client_request_id": request.client_request_id,
+                        "policy_decision": guardrails.policy_decision,
+                        "status": mandate.status,
+                    },
+                )
+                return mandate
+        return None
+
+    def _mandate_matches_request(
+        self,
+        mandate: ApprovalMandate,
+        request: OrderPreviewRequest,
+        connected_mode: str | None,
+        estimated_notional: float,
+    ) -> bool:
+        now = datetime.now(UTC)
+        if mandate.status != "approved":
+            return False
+        if mandate.expires_at <= now:
+            mandate.status = "expired"
+            self._persist_approval_mandate(mandate)
+            return False
+        if mandate.uses_consumed >= mandate.max_uses:
+            mandate.status = "consumed"
+            self._persist_approval_mandate(mandate)
+            return False
+        if mandate.instrument_type != request.instrument_type:
+            return False
+        if mandate.target_mode != "auto" and connected_mode is not None and mandate.target_mode != connected_mode:
+            return False
+        if mandate.symbols and request.symbol.upper() not in mandate.symbols:
+            return False
+        if mandate.actions and request.action.upper() not in mandate.actions:
+            return False
+        if estimated_notional > mandate.max_order_notional:
+            return False
+        return True
+
     @staticmethod
     def _extract_audit_fields(event_type: str, payload: dict[str, object]) -> dict[str, str | None]:
         response = payload.get("response")
@@ -2729,7 +2920,7 @@ class TradingService:
         client_request_id = _string_or_none(payload.get("client_request_id")) or _string_or_none(
             response_dict.get("client_request_id")
         )
-        approval_id = _string_or_none(payload.get("approval_id"))
+        approval_id = _string_or_none(payload.get("approval_id")) or _string_or_none(payload.get("mandate_id"))
         status = _string_or_none(payload.get("status")) or _string_or_none(response_dict.get("status"))
         policy_decision = _string_or_none(payload.get("policy_decision"))
 
@@ -2838,7 +3029,7 @@ class TradingService:
 
     def _load_persistent_state(self) -> None:
         self._runtime.idempotency_records.clear()
-        self._runtime.approval_records.clear()
+        self._runtime.approval_mandates.clear()
 
         for row in IdempotencyRecord.select():
             try:
@@ -2847,22 +3038,32 @@ class TradingService:
             except Exception:
                 continue
 
-        for row in ApprovalRecordStore.select():
+        for row in ApprovalMandateStore.select():
             try:
-                request = OrderPreviewRequest(**json.loads(row.request_json))
-                guardrails = ExecutionGuardrailsResponse(**json.loads(row.guardrails_json))
-                self._runtime.approval_records[row.approval_id] = ApprovalRecord(
-                    approval_id=row.approval_id,
+                symbols = _json_object(row.symbols_json).get("symbols", [])
+                actions = _json_object(row.actions_json).get("actions", [])
+                request = OrderPreviewRequest(**json.loads(row.request_json)) if row.request_json else None
+                guardrails = ExecutionGuardrailsResponse(**json.loads(row.guardrails_json)) if row.guardrails_json else None
+                self._runtime.approval_mandates[row.mandate_id] = ApprovalMandate(
+                    mandate_id=row.mandate_id,
                     status=row.status,
                     created_at=row.created_at,
                     expires_at=row.expires_at,
-                    request=request,
-                    policy_decision=row.policy_decision,
-                    approval_required=bool(row.approval_required),
-                    guardrails=guardrails,
+                    instrument_type=InstrumentType(row.instrument_type),
+                    target_mode=row.target_mode,
+                    symbols=[str(symbol).upper() for symbol in symbols if isinstance(symbol, str)],
+                    actions=[str(action).upper() for action in actions if isinstance(action, str)],
+                    max_order_notional=float(row.max_order_notional),
+                    max_uses=int(row.max_uses),
+                    uses_consumed=int(row.uses_consumed),
                     note=row.note,
                     requester=row.requester,
                     approved_by=row.approved_by,
+                    request=request,
+                    policy_decision=row.policy_decision,
+                    approval_required=bool(row.approval_required) if row.approval_required is not None else None,
+                    guardrails=guardrails,
+                    request_context=_json_object(row.request_context_json),
                 )
             except Exception:
                 continue

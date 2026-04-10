@@ -15,7 +15,8 @@ from app.models.trading import (
     AccountSummaryResponse,
     AccountRiskSnapshotResponse,
     ApprovalDecisionRequest,
-    ApprovalRequestResponse,
+    ApprovalMandateRequest,
+    ApprovalMandateResponse,
     AuditBehaviorSummaryResponse,
     AuditEventResponse,
     CashSizingRequest,
@@ -45,6 +46,7 @@ from app.models.trading import (
     OrderSubmissionResponse,
     PolicyProfileResponse,
     PortfolioRiskSnapshotResponse,
+    PositionExitOcaRequest,
     PositionActionPlanResponse,
     PositionSnapshotResponse,
     PositionResponse,
@@ -582,6 +584,15 @@ async def submit_reduce_position(
     return await trading_service.submit_reduce_position(request)
 
 
+@router.post("/positions/exit/oca", response_model=OrderSubmissionResponse)
+async def submit_position_exit_oca(
+    request: PositionExitOcaRequest,
+    trading_service: TradingService = Depends(get_trading_service),
+    _: object = Depends(require_http_scopes(EXECUTE_SCOPE)),
+) -> OrderSubmissionResponse:
+    return await trading_service.submit_position_exit_oca(request)
+
+
 @router.post("/orders/submit", response_model=OrderSubmissionResponse)
 async def submit_order(
     request: OrderPreviewRequest,
@@ -591,51 +602,52 @@ async def submit_order(
     return await trading_service.submit_order(request)
 
 
-@router.post("/orders/approval", response_model=ApprovalRequestResponse)
-async def create_approval(
-    request: OrderPreviewRequest,
+@router.post("/orders/approval-mandate", response_model=ApprovalMandateResponse)
+async def create_approval_mandate(
+    request: ApprovalMandateRequest,
     trading_service: TradingService = Depends(get_trading_service),
     _: object = Depends(require_http_scopes(PREVIEW_SCOPE)),
-) -> ApprovalRequestResponse:
-    return await trading_service.create_approval_request(request)
+) -> ApprovalMandateResponse:
+    return await trading_service.create_approval_mandate(request)
 
 
-@router.get("/orders/approval/{approval_id}", response_model=ApprovalRequestResponse)
-async def get_approval(
-    approval_id: str,
+@router.get("/orders/approval-mandate/{mandate_id}", response_model=ApprovalMandateResponse)
+async def get_approval_mandate(
+    mandate_id: str,
     trading_service: TradingService = Depends(get_trading_service),
     _: object = Depends(require_http_scopes(PREVIEW_SCOPE)),
-) -> ApprovalRequestResponse:
-    return await trading_service.get_approval_request(approval_id)
+) -> ApprovalMandateResponse:
+    return await trading_service.get_approval_mandate(mandate_id)
 
 
-@router.post("/orders/approval/{approval_id}/approve", response_model=ApprovalRequestResponse)
-async def approve_order(
-    approval_id: str,
+@router.post("/orders/approval-mandate/{mandate_id}/approve", response_model=ApprovalMandateResponse)
+async def approve_approval_mandate(
+    mandate_id: str,
     request: ApprovalDecisionRequest,
     trading_service: TradingService = Depends(get_trading_service),
     _: object = Depends(require_http_scopes(EXECUTE_SCOPE)),
-) -> ApprovalRequestResponse:
-    return await trading_service.approve_request(approval_id, request)
+) -> ApprovalMandateResponse:
+    return await trading_service.approve_mandate(mandate_id, request)
 
 
-@router.post("/orders/approval/{approval_id}/reject", response_model=ApprovalRequestResponse)
-async def reject_order(
-    approval_id: str,
+@router.post("/orders/approval-mandate/{mandate_id}/reject", response_model=ApprovalMandateResponse)
+async def reject_approval_mandate(
+    mandate_id: str,
     request: ApprovalDecisionRequest,
     trading_service: TradingService = Depends(get_trading_service),
     _: object = Depends(require_http_scopes(EXECUTE_SCOPE)),
-) -> ApprovalRequestResponse:
-    return await trading_service.reject_request(approval_id, request)
+) -> ApprovalMandateResponse:
+    return await trading_service.reject_mandate(mandate_id, request)
 
 
-@router.post("/orders/approval/{approval_id}/submit", response_model=OrderSubmissionResponse)
-async def submit_approved_order(
-    approval_id: str,
+@router.post("/orders/approval-mandate/{mandate_id}/revoke", response_model=ApprovalMandateResponse)
+async def revoke_approval_mandate(
+    mandate_id: str,
+    request: ApprovalDecisionRequest,
     trading_service: TradingService = Depends(get_trading_service),
     _: object = Depends(require_http_scopes(EXECUTE_SCOPE)),
-) -> OrderSubmissionResponse:
-    return await trading_service.submit_approved_request(approval_id)
+) -> ApprovalMandateResponse:
+    return await trading_service.revoke_mandate(mandate_id, request)
 
 
 @router.post("/orders/cancel/{order_id}", response_model=OrderCancellationResponse)

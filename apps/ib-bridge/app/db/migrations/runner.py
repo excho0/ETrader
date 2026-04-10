@@ -89,6 +89,8 @@ MIGRATION_MODULES = [
     "app.db.migrations.003_order_lifecycle",
     "app.db.migrations.004_position_snapshots",
     "app.db.migrations.005_audit_execution_context",
+    "app.db.migrations.006_approval_mandates",
+    "app.db.migrations.007_drop_legacy_approval_record",
 ]
 
 

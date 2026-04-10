@@ -102,6 +102,15 @@ The trading bridge now runs as one app:
 
 Normal trading operations should go through that single app-owned IB client session. Avoid placing routine orders from separate ad hoc IB scripts, because they fragment order visibility and lifecycle management.
 
+For agent-driven execution, use a mandate-first approval pattern when possible:
+
+- preview and evaluate the intended trade shape first
+- if approval is required for multiple related orders, create one reusable approval mandate
+- approve that mandate once
+- let the agent continue using the normal submit tools
+
+This reduces repeated approval churn without weakening the app-owned guardrail boundary. Mandates are still bounded by mode, symbols, actions, notional, expiry, and use count.
+
 ## IB Gateway
 
 The compose stack runs IB Gateway using:
@@ -195,11 +204,18 @@ Key capabilities exposed by the first version:
 - position reads
 - stock quote lookups
 - guarded order previews
+- reusable approval mandates for agent execution windows
 - versioned routes under `/api/v1`
 - MCP transport mounted under `/mcp`
 - one shared broker client session for REST and MCP
 
 The service is intentionally conservative. Real order submission is disabled by default and must be explicitly enabled through configuration.
+
+For MCP agents, the practical approval model is:
+
+- use preview and guardrail tools first
+- use `trading_create_approval_mandate` plus `trading_approve_mandate` for short bounded execution windows
+- use a narrow one-use mandate for one-off or unusual submissions
 
 ## Dev Shell
 

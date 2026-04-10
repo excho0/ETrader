@@ -27,7 +27,8 @@ from app.models.trading import (
     AccountSummaryResponse,
     AccountRiskSnapshotResponse,
     ApprovalDecisionRequest,
-    ApprovalRequestResponse,
+    ApprovalMandateRequest,
+    ApprovalMandateResponse,
     AuditBehaviorSummaryResponse,
     AuditEventResponse,
     CashSizingRequest,
@@ -57,6 +58,7 @@ from app.models.trading import (
     OrderSubmissionResponse,
     PolicyProfileResponse,
     PortfolioRiskSnapshotResponse,
+    PositionExitOcaRequest,
     PositionActionPlanResponse,
     PositionSnapshotResponse,
     PositionResponse,
@@ -1140,6 +1142,49 @@ async def submit_reduce_position(
 
 
 @mcp.tool(
+    name="trading_submit_position_exit_oca",
+    title="Submit Position Exit OCA",
+    description=(
+        "Submit linked one-cancels-all take-profit and stop-loss exit orders "
+        "for an existing long stock position."
+    ),
+    annotations=EXECUTION,
+    structured_output=True,
+    meta={"category": "execution", "risk_tier": "high", "side_effects": "submits_broker_order"},
+)
+async def submit_position_exit_oca(
+    symbol: str,
+    quantity: float,
+    take_profit_price: float,
+    stop_loss_price: float,
+    instrument_type: InstrumentType = InstrumentType.STOCK,
+    exchange: str = "SMART",
+    currency: str = "USD",
+    primary_exchange: str | None = None,
+    time_in_force: str = "DAY",
+    requester: str | None = None,
+    client_request_id: str | None = None,
+) -> OrderSubmissionResponse:
+    require_mcp_scopes(EXECUTE_SCOPE)
+    async with current_trading_service() as service:
+        return await service.submit_position_exit_oca(
+            PositionExitOcaRequest(
+                instrument_type=instrument_type,
+                symbol=symbol,
+                quantity=quantity,
+                take_profit_price=take_profit_price,
+                stop_loss_price=stop_loss_price,
+                exchange=exchange,
+                currency=currency,
+                primary_exchange=primary_exchange,
+                time_in_force=time_in_force,
+                requester=requester,
+                client_request_id=client_request_id,
+            )
+        )
+
+
+@mcp.tool(
     name="trading_policy_profile",
     title="Trading Policy Profile",
     description=(
@@ -1383,107 +1428,101 @@ async def submit_order(
 
 
 @mcp.tool(
-    name="trading_create_approval_request",
-    title="Create Approval Request",
-    description="Create an approval request for a proposed order that should not auto-submit yet.",
+    name="trading_create_approval_mandate",
+    title="Create Approval Mandate",
+    description="Create a reusable approval mandate so one approval can authorize multiple matching order submissions.",
     annotations=EXECUTION_PREVIEW,
     structured_output=True,
-    meta={"category": "approval", "risk_tier": "medium", "side_effects": "creates_approval_record"},
+    meta={"category": "approval", "risk_tier": "medium", "side_effects": "creates_approval_mandate"},
 )
-async def create_approval_request(
-    symbol: str,
-    action: str,
-    quantity: float,
+async def create_approval_mandate(
+    max_order_notional: float,
+    max_uses: int = 1,
     instrument_type: InstrumentType = InstrumentType.STOCK,
-    exchange: str = "SMART",
-    currency: str = "USD",
-    primary_exchange: str | None = None,
-    order_type: str = "MKT",
-    limit_price: float | None = None,
-    stop_price: float | None = None,
-    take_profit_price: float | None = None,
-    entry_limit_price: float | None = None,
-    time_in_force: str = "DAY",
+    target_mode: str = "paper",
+    symbols: list[str] | None = None,
+    actions: list[str] | None = None,
+    expires_in_seconds: int | None = None,
     requester: str | None = None,
-    approval_mode: str = "force_approval",
-) -> ApprovalRequestResponse:
+    request_source: str | None = None,
+    agent_id: str | None = None,
+    run_id: str | None = None,
+    strategy_id: str | None = None,
+) -> ApprovalMandateResponse:
     require_mcp_scopes(PREVIEW_SCOPE)
     async with current_trading_service() as service:
-        return await service.create_approval_request(
-            OrderPreviewRequest(
+        return await service.create_approval_mandate(
+            ApprovalMandateRequest(
                 instrument_type=instrument_type,
-                symbol=symbol,
-                action=action,
-                quantity=quantity,
-                exchange=exchange,
-                currency=currency,
-                primary_exchange=primary_exchange,
-                order_type=order_type,
-                limit_price=limit_price,
-                stop_price=stop_price,
-                take_profit_price=take_profit_price,
-                entry_limit_price=entry_limit_price,
-                time_in_force=time_in_force,
+                target_mode=target_mode,
+                symbols=symbols or [],
+                actions=actions or [],
+                max_order_notional=max_order_notional,
+                max_uses=max_uses,
+                expires_in_seconds=expires_in_seconds,
                 requester=requester,
-                approval_mode=approval_mode,
+                request_source=request_source,
+                agent_id=agent_id,
+                run_id=run_id,
+                strategy_id=strategy_id,
             )
         )
 
 
 @mcp.tool(
-    name="trading_get_approval_request",
-    title="Get Approval Request",
-    description="Fetch an approval request by id.",
+    name="trading_get_approval_mandate",
+    title="Get Approval Mandate",
+    description="Fetch a reusable approval mandate by id.",
     annotations=READ_ONLY,
     structured_output=True,
     meta={"category": "approval", "risk_tier": "safe", "side_effects": "none"},
 )
-async def get_approval_request(approval_id: str) -> ApprovalRequestResponse:
+async def get_approval_mandate(mandate_id: str) -> ApprovalMandateResponse:
     require_mcp_scopes(PREVIEW_SCOPE)
     async with current_trading_service() as service:
-        return await service.get_approval_request(approval_id)
+        return await service.get_approval_mandate(mandate_id)
 
 
 @mcp.tool(
-    name="trading_approve_request",
-    title="Approve Request",
-    description="Approve a pending approval request so it can later be submitted.",
+    name="trading_approve_mandate",
+    title="Approve Mandate",
+    description="Approve a reusable approval mandate so matching orders can execute without repeated per-order approvals.",
     annotations=EXECUTION,
     structured_output=True,
-    meta={"category": "approval", "risk_tier": "high", "side_effects": "approves_approval_record"},
+    meta={"category": "approval", "risk_tier": "high", "side_effects": "approves_approval_mandate"},
 )
-async def approve_request(approval_id: str, actor: str | None = None, note: str | None = None) -> ApprovalRequestResponse:
+async def approve_mandate(mandate_id: str, actor: str | None = None, note: str | None = None) -> ApprovalMandateResponse:
     require_mcp_scopes(EXECUTE_SCOPE)
     async with current_trading_service() as service:
-        return await service.approve_request(approval_id, ApprovalDecisionRequest(actor=actor, note=note))
+        return await service.approve_mandate(mandate_id, ApprovalDecisionRequest(actor=actor, note=note))
 
 
 @mcp.tool(
-    name="trading_reject_request",
-    title="Reject Request",
-    description="Reject a pending approval request.",
+    name="trading_reject_mandate",
+    title="Reject Mandate",
+    description="Reject a pending reusable approval mandate.",
     annotations=EXECUTION,
     structured_output=True,
-    meta={"category": "approval", "risk_tier": "high", "side_effects": "rejects_approval_record"},
+    meta={"category": "approval", "risk_tier": "high", "side_effects": "rejects_approval_mandate"},
 )
-async def reject_request(approval_id: str, actor: str | None = None, note: str | None = None) -> ApprovalRequestResponse:
+async def reject_mandate(mandate_id: str, actor: str | None = None, note: str | None = None) -> ApprovalMandateResponse:
     require_mcp_scopes(EXECUTE_SCOPE)
     async with current_trading_service() as service:
-        return await service.reject_request(approval_id, ApprovalDecisionRequest(actor=actor, note=note))
+        return await service.reject_mandate(mandate_id, ApprovalDecisionRequest(actor=actor, note=note))
 
 
 @mcp.tool(
-    name="trading_submit_approved_request",
-    title="Submit Approved Request",
-    description="Submit an already-approved request through the guarded execution path.",
+    name="trading_revoke_mandate",
+    title="Revoke Mandate",
+    description="Revoke an approved or pending approval mandate before all uses are consumed.",
     annotations=EXECUTION,
     structured_output=True,
-    meta={"category": "execution", "risk_tier": "high", "side_effects": "submits_broker_order"},
+    meta={"category": "approval", "risk_tier": "high", "side_effects": "revokes_approval_mandate"},
 )
-async def submit_approved_request(approval_id: str) -> OrderSubmissionResponse:
+async def revoke_mandate(mandate_id: str, actor: str | None = None, note: str | None = None) -> ApprovalMandateResponse:
     require_mcp_scopes(EXECUTE_SCOPE)
     async with current_trading_service() as service:
-        return await service.submit_approved_request(approval_id)
+        return await service.revoke_mandate(mandate_id, ApprovalDecisionRequest(actor=actor, note=note))
 
 
 @mcp.tool(

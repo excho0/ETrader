@@ -1,8 +1,8 @@
 from app.db.database import database, initialize_database
-from app.db.models import ApprovalRecordStore, AuditEventRecord, BaseModel, IdempotencyRecord, OrderLifecycleRecord, PositionSnapshotRecord, dump_json
+from app.db.models import ApprovalMandateStore, AuditEventRecord, BaseModel, IdempotencyRecord, OrderLifecycleRecord, PositionSnapshotRecord, dump_json
 
 __all__ = [
-    "ApprovalRecordStore",
+    "ApprovalMandateStore",
     "AuditEventRecord",
     "BaseModel",
     "IdempotencyRecord",
