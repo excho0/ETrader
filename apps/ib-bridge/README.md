@@ -30,6 +30,42 @@ curl -i http://localhost:8040/mcp/
 
 Use the mounted MCP endpoint from the same app process. Do not run ad hoc external IB API scripts as part of normal operation. REST and MCP are intended to share one app-owned broker session.
 
+## MCP Execution Pattern
+
+Agents should prefer a mandate-first execution flow when they expect more than one related order to require approval.
+
+Recommended flow:
+
+1. Read account, exposure, and market state.
+2. Run preview and guardrail tools for the intended trade shape.
+3. If approval is required, create a reusable approval mandate that is scoped tightly enough for the intended batch or short execution window.
+4. Approve that mandate once.
+5. Continue using the normal submit tools. Matching orders will consume the approved mandate automatically until it expires or runs out of uses.
+
+Relevant MCP tools:
+
+- `trading_execution_guardrails`
+- `trading_trade_candidate_evaluation`
+- `trading_create_approval_mandate`
+- `trading_get_approval_mandate`
+- `trading_approve_mandate`
+- `trading_reject_mandate`
+- `trading_revoke_mandate`
+- `trading_submit_order`
+- `trading_submit_open_position`
+- `trading_submit_reduce_position`
+
+Mandates should stay narrow:
+
+- short expiry
+- explicit `target_mode`
+- explicit `symbols`
+- explicit `actions`
+- bounded `max_order_notional`
+- bounded `max_uses`
+
+For one-off trades, create a one-use mandate with a short expiry instead of using a separate approval model.
+
 ## Environment
 
 Typical local settings:
@@ -67,6 +103,7 @@ To permit new live orders, all of the following should be true:
 - `ALLOW_LIVE_ORDERS=true`
 - the execute token is used
 - approval and preview flows pass
+- approval mandates, if used, are scoped narrowly and reviewed before approval
 
 Operational rule:
 
@@ -84,6 +121,8 @@ The service uses a simplified scoped token model:
 
 This avoids managing a separate token per scope while still keeping execution isolated from normal agent access.
 
+Approval tools do not bypass execute-scope protection. Creating or reading a mandate can be preview-scoped, but approving, rejecting, revoking, or submitting still requires execute authority.
+
 ## API Shape
 
 HTTP routes are versioned under `/api/v1`.
@@ -96,6 +135,8 @@ Examples:
 - `GET /api/v1/trading/orders/open`
 - `POST /api/v1/trading/orders/submit`
 - `POST /api/v1/trading/orders/close-position`
+- `POST /api/v1/trading/orders/approval-mandate`
+- `POST /api/v1/trading/orders/approval-mandate/{mandate_id}/approve`
 
 ## Single-Client Model
 

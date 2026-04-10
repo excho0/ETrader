@@ -255,58 +255,64 @@ async def main() -> None:
                         )
                         await call_tool(session, "trading_cancel_order", {"order_id": order_id})
 
-                    approval_result = await call_tool_result(
+                    mandate_result = await call_tool_result(
                         session,
-                        "trading_create_approval_request",
+                        "trading_create_approval_mandate",
                         {
-                            "symbol": "AAPL",
-                            "action": "BUY",
-                            "quantity": 1,
-                            "exchange": "SMART",
-                            "currency": "USD",
-                            "primary_exchange": "NASDAQ",
-                            "order_type": "LMT",
-                            "limit_price": 100.0,
-                            "time_in_force": "DAY",
+                            "max_order_notional": 200.0,
+                            "max_uses": 1,
+                            "target_mode": "paper",
+                            "symbols": ["AAPL"],
+                            "actions": ["BUY"],
                             "requester": "mcp_smoke",
-                            "approval_mode": "force_approval",
                         },
                     )
-                    approval_payload = structured_content(approval_result)
-                    approval_id = approval_payload.get("approval_id")
-                    if approval_id:
-                        await call_tool(session, "trading_get_approval_request", {"approval_id": approval_id})
+                    mandate_payload = structured_content(mandate_result)
+                    mandate_id = mandate_payload.get("mandate_id")
+                    if mandate_id:
+                        await call_tool(session, "trading_get_approval_mandate", {"mandate_id": mandate_id})
                         await call_tool(
                             session,
-                            "trading_approve_request",
-                            {"approval_id": approval_id, "actor": "mcp_smoke", "note": "smoke approval"},
+                            "trading_approve_mandate",
+                            {"mandate_id": mandate_id, "actor": "mcp_smoke", "note": "smoke approval"},
                         )
-                        await call_tool(session, "trading_submit_approved_request", {"approval_id": approval_id})
+                        await call_tool(
+                            session,
+                            "trading_submit_order",
+                            {
+                                "symbol": "AAPL",
+                                "action": "BUY",
+                                "quantity": 1,
+                                "exchange": "SMART",
+                                "currency": "USD",
+                                "primary_exchange": "NASDAQ",
+                                "order_type": "LMT",
+                                "limit_price": 100.0,
+                                "time_in_force": "DAY",
+                                "requester": "mcp_smoke",
+                                "approval_mode": "policy",
+                            },
+                        )
 
                     reject_result = await call_tool_result(
                         session,
-                        "trading_create_approval_request",
+                        "trading_create_approval_mandate",
                         {
-                            "symbol": "AAPL",
-                            "action": "BUY",
-                            "quantity": 1,
-                            "exchange": "SMART",
-                            "currency": "USD",
-                            "primary_exchange": "NASDAQ",
-                            "order_type": "LMT",
-                            "limit_price": 100.0,
-                            "time_in_force": "DAY",
+                            "max_order_notional": 200.0,
+                            "max_uses": 1,
+                            "target_mode": "paper",
+                            "symbols": ["AAPL"],
+                            "actions": ["BUY"],
                             "requester": f"mcp_smoke_reject_{base_id}",
-                            "approval_mode": "force_approval",
                         },
                     )
                     reject_payload = structured_content(reject_result)
-                    reject_id = reject_payload.get("approval_id")
+                    reject_id = reject_payload.get("mandate_id")
                     if reject_id:
                         await call_tool(
                             session,
-                            "trading_reject_request",
-                            {"approval_id": reject_id, "actor": "mcp_smoke", "note": "smoke reject"},
+                            "trading_reject_mandate",
+                            {"mandate_id": reject_id, "actor": "mcp_smoke", "note": "smoke reject"},
                         )
 
                     await call_tool_result(

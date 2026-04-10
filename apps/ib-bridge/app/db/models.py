@@ -44,21 +44,29 @@ class IdempotencyRecord(BaseModel):
         table_name = "idempotency_record"
 
 
-class ApprovalRecordStore(BaseModel):
-    approval_id = CharField(primary_key=True, max_length=64)
+class ApprovalMandateStore(BaseModel):
+    mandate_id = CharField(primary_key=True, max_length=64)
     status = CharField(max_length=32)
     created_at = DateTimeField()
     expires_at = DateTimeField()
-    request_json = TextField()
-    policy_decision = CharField(max_length=64)
-    approval_required = BooleanField()
-    guardrails_json = TextField()
+    instrument_type = CharField(max_length=32)
+    target_mode = CharField(max_length=16)
+    symbols_json = TextField()
+    actions_json = TextField()
+    max_order_notional = TextField()
+    max_uses = CharField(max_length=32)
+    uses_consumed = CharField(max_length=32)
     note = TextField(null=True)
     requester = CharField(max_length=256, null=True)
     approved_by = CharField(max_length=256, null=True)
+    request_json = TextField(null=True)
+    policy_decision = CharField(max_length=64, null=True)
+    approval_required = BooleanField(null=True)
+    guardrails_json = TextField(null=True)
+    request_context_json = TextField()
 
     class Meta:
-        table_name = "approval_record"
+        table_name = "approval_mandate"
 
 
 class OrderLifecycleRecord(BaseModel):

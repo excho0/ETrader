@@ -328,22 +328,41 @@ class TradeCandidateEvaluationResponse(BaseModel):
     advice: OrderAdvisorResponse
 
 
-class ApprovalRequestResponse(BaseModel):
-    approval_id: str
-    status: str
-    created_at: str
-    expires_at: str
-    request: "OrderPreviewRequest"
-    policy_decision: str
-    approval_required: bool
-    guardrails: ExecutionGuardrailsResponse
-    note: str | None = None
-    requester: str | None = None
-
-
 class ApprovalDecisionRequest(BaseModel):
     note: str | None = None
     actor: str | None = None
+
+
+class ApprovalMandateRequest(InstrumentTypeAwareModel):
+    instrument_type: InstrumentType = Field(default=InstrumentType.STOCK)
+    target_mode: str = Field(default="paper", pattern="^(paper|live|auto)$")
+    symbols: list[str] = Field(default_factory=list)
+    actions: list[str] = Field(default_factory=list)
+    max_order_notional: float = Field(gt=0)
+    max_uses: int = Field(default=1, ge=1)
+    expires_in_seconds: int | None = Field(default=None, gt=0)
+    requester: str | None = None
+    request_source: str | None = None
+    agent_id: str | None = Field(default=None, min_length=1, max_length=128)
+    run_id: str | None = Field(default=None, min_length=1, max_length=128)
+    strategy_id: str | None = Field(default=None, min_length=1, max_length=128)
+
+
+class ApprovalMandateResponse(InstrumentTypeAwareModel):
+    instrument_type: InstrumentType = InstrumentType.STOCK
+    mandate_id: str
+    status: str
+    created_at: str
+    expires_at: str
+    target_mode: str
+    symbols: list[str] = []
+    actions: list[str] = []
+    max_order_notional: float
+    max_uses: int
+    uses_consumed: int
+    note: str | None = None
+    requester: str | None = None
+    approved_by: str | None = None
 
 
 class AuditEventResponse(BaseModel):
@@ -556,6 +575,7 @@ class OrderSubmissionResponse(InstrumentTypeAwareModel):
     order_type: str
     limit_price: float | None = None
     stop_price: float | None = None
+    take_profit_price: float | None = None
     time_in_force: str
     client_request_id: str | None = None
     idempotent_replay: bool = False
@@ -615,6 +635,24 @@ class ReducePositionRequest(InstrumentTypeAwareModel):
     client_request_id: str | None = Field(default=None, min_length=1, max_length=128)
 
 
+class PositionExitOcaRequest(InstrumentTypeAwareModel):
+    instrument_type: InstrumentType = Field(default=InstrumentType.STOCK)
+    symbol: str
+    quantity: float = Field(gt=0)
+    take_profit_price: float = Field(gt=0)
+    stop_loss_price: float = Field(gt=0)
+    exchange: str = "SMART"
+    currency: str = "USD"
+    primary_exchange: str | None = None
+    time_in_force: str = Field(default="DAY", pattern="^(DAY|GTC)$")
+    requester: str | None = None
+    request_source: str | None = None
+    agent_id: str | None = Field(default=None, min_length=1, max_length=128)
+    run_id: str | None = Field(default=None, min_length=1, max_length=128)
+    strategy_id: str | None = Field(default=None, min_length=1, max_length=128)
+    client_request_id: str | None = Field(default=None, min_length=1, max_length=128)
+
+
 class PositionActionPlanResponse(BaseModel):
     normalized_order: OrderPreviewRequest
     preview: OrderPreviewResponse
@@ -638,5 +676,3 @@ class OpenOrderResponse(InstrumentTypeAwareModel):
     time_in_force: str | None = None
     status: str
 
-
-ApprovalRequestResponse.model_rebuild()

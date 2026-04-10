@@ -4,7 +4,7 @@ from pathlib import Path
 
 from app.db.database_ref import database
 from app.db.migrations.runner import run_migrations
-from app.db.models import ApprovalRecordStore, AuditEventRecord, IdempotencyRecord, OrderLifecycleRecord, PositionSnapshotRecord
+from app.db.models import ApprovalMandateStore, AuditEventRecord, IdempotencyRecord, OrderLifecycleRecord, PositionSnapshotRecord
 
 
 def initialize_database(db_path: str) -> None:
@@ -22,6 +22,6 @@ def initialize_database(db_path: str) -> None:
     database.connect(reuse_if_open=True)
     run_migrations(database)
     database.create_tables(
-        [AuditEventRecord, IdempotencyRecord, ApprovalRecordStore, OrderLifecycleRecord, PositionSnapshotRecord],
+        [AuditEventRecord, IdempotencyRecord, ApprovalMandateStore, OrderLifecycleRecord, PositionSnapshotRecord],
         safe=True,
     )
