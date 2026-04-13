@@ -481,7 +481,7 @@ async def execution_quality(order_id: str) -> ExecutionQualityResponse:
     title="Qualify Instrument Contract",
     description=(
         "Resolve and validate a contract using the current product adapter. This is the "
-        "generic contract entrypoint for future multi-product expansion. Today it supports stocks."
+        "generic contract entrypoint for supported products, including stocks and forex."
     ),
     annotations=READ_ONLY,
     structured_output=True,
@@ -545,7 +545,7 @@ async def qualify_stock_contract(
     title="Instrument Quote",
     description=(
         "Fetch a market quote using the current product adapter. This is the generic quote "
-        "entrypoint for future multi-product expansion. Today it supports stocks."
+        "entrypoint for supported products, including stocks and forex."
     ),
     annotations=READ_ONLY,
     structured_output=True,
@@ -619,7 +619,7 @@ async def stock_quote(
     title="Instrument Snapshot",
     description=(
         "Return a decision-ready market snapshot using the current product adapter. This is "
-        "the generic snapshot entrypoint for future multi-product expansion. Today it supports stocks."
+        "the generic snapshot entrypoint for supported products, including stocks and forex."
     ),
     annotations=READ_ONLY,
     structured_output=True,
@@ -848,7 +848,7 @@ async def symbol_exposure(
     currency: str = "USD",
     primary_exchange: str | None = None,
 ) -> SymbolExposureResponse:
-    """Return position plus open-order exposure for one instrument. Today the product adapter is stock-only."""
+    """Return position plus open-order exposure for one supported instrument."""
     require_mcp_scopes(READ_SCOPE)
     async with current_trading_service() as service:
         return await service.get_symbol_exposure(
@@ -1268,7 +1268,7 @@ async def execution_guardrails(
     description=(
         "Recommend whether a proposed order should be market or limit based on quote "
         "quality, spread, delayed versus live data, and current guardrails. This tool is "
-        "instrument-aware through instrument_type, though only stock is implemented today."
+        "instrument-aware through instrument_type for supported products."
     ),
     annotations=EXECUTION_PREVIEW,
     structured_output=True,
@@ -1570,7 +1570,7 @@ async def flatten_all_positions() -> list[OrderSubmissionResponse]:
 @mcp.tool(
     name="trading_close_symbol_position",
     title="Close Symbol Position",
-    description="Submit a price-controlled limit order to flatten the current position in one instrument. Today only stock is implemented.",
+    description="Submit a price-controlled limit order to flatten the current position in one supported instrument.",
     annotations=EXECUTION,
     structured_output=True,
     meta={"category": "execution", "risk_tier": "high", "side_effects": "submits_broker_close_order"},

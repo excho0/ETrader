@@ -480,7 +480,7 @@ class TradingService:
                 positions = await self._client.positions()
                 responses = [
                     PositionResponse(
-                        instrument_type="stock",
+                        instrument_type=self._instrument_type_from_contract(item.contract),
                         account=item.account,
                         symbol=item.contract.symbol,
                         exchange=item.contract.exchange,
@@ -511,7 +511,7 @@ class TradingService:
             for fill in fills[-25:]:
                 reports.append(
                     ExecutionReportResponse(
-                        instrument_type="stock",
+                        instrument_type=self._instrument_type_from_contract(fill.contract),
                         symbol=fill.contract.symbol,
                         side=fill.execution.side,
                         shares=float(fill.execution.shares),
@@ -613,14 +613,18 @@ class TradingService:
         if fill is None:
             raise TradingValidationError(f"No execution fill found for order_id={order_id}")
         lifecycle_symbol = cast(str | None, lifecycle.symbol)
+        fill_instrument_type = self._instrument_type_from_contract(fill.contract)
         reference_price = None
         data_mode = None
         try:
-            snapshot = await self.get_market_snapshot(
-                symbol=lifecycle_symbol or fill.contract.symbol,
-                exchange="SMART",
-                currency=fill.contract.currency,
-                primary_exchange=getattr(fill.contract, "primaryExchange", None),
+            snapshot = await self.get_instrument_snapshot(
+                InstrumentContractSpec(
+                    instrument_type=fill_instrument_type,
+                    symbol=lifecycle_symbol or fill.contract.symbol,
+                    exchange=getattr(fill.contract, "exchange", None) or "SMART",
+                    currency=fill.contract.currency,
+                    primary_exchange=getattr(fill.contract, "primaryExchange", None),
+                )
             )
             reference_price = snapshot.mid_price or snapshot.last or snapshot.close
             data_mode = snapshot.data_mode
@@ -653,6 +657,7 @@ class TradingService:
         if data_mode == "delayed":
             notes.append("Reference price used delayed market data")
         return ExecutionQualityResponse(
+            instrument_type=fill_instrument_type,
             order_id=order_id,
             symbol=lifecycle_symbol or fill.contract.symbol,
             action=lifecycle_action,
@@ -978,12 +983,20 @@ class TradingService:
 
 
     async def get_order_status(self, order_id: str) -> OrderStatusResponse:
+        lifecycle_query = cast(
+            ModelSelect,
+            OrderLifecycleRecord.select().where(OrderLifecycleRecord.order_id == order_id),
+        )
+        lifecycle_query = cast(ModelSelect, lifecycle_query.order_by(OrderLifecycleRecord.updated_at.desc()))
+        lifecycle = cast(OrderLifecycleRecord | None, lifecycle_query.first())
+        lifecycle_payload = _json_object(lifecycle.payload_json) if lifecycle is not None else {}
+
         async with self._request_lock:
             trades = await self._client.open_trades()
             for trade in trades:
                 if str(trade.order.orderId) == order_id:
                     return OrderStatusResponse(
-                        instrument_type="stock",
+                        instrument_type=self._instrument_type_from_contract(trade.contract),
                         order_id=order_id,
                         status=str(trade.orderStatus.status),
                         symbol=trade.contract.symbol,
@@ -1000,7 +1013,7 @@ class TradingService:
             for fill in reversed(fills):
                 if str(fill.execution.orderId) == order_id:
                     return OrderStatusResponse(
-                        instrument_type="stock",
+                        instrument_type=self._instrument_type_from_contract(fill.contract),
                         order_id=order_id,
                         status="Filled",
                         symbol=fill.contract.symbol,
@@ -1015,7 +1028,7 @@ class TradingService:
                     )
 
         return OrderStatusResponse(
-            instrument_type="stock",
+            instrument_type=self._deserialize_instrument_type(cast(str | None, lifecycle_payload.get("instrument_type")) if 'lifecycle_payload' in locals() else None),
             order_id=order_id,
             status="UNKNOWN",
             source="broker_lookup_miss",
@@ -1174,23 +1187,6 @@ class TradingService:
                     self._instrument_closed_note(spec),
                     timeout=self._settings.ib_market_data_timeout_seconds + 1.0,
                 )
-                if closed_note:
-                    self._logger.info(
-                        "Market quote unavailable due to closed venue symbol=%s exchange=%s primary_exchange=%s note=%s",
-                        spec.symbol,
-                        spec.exchange,
-                        spec.primary_exchange,
-                        closed_note,
-                    )
-                    return MarketQuoteResponse(
-                        instrument_type=spec.instrument_type,
-                        symbol=spec.symbol,
-                        exchange=spec.exchange,
-                        currency=spec.currency,
-                        data_mode="unavailable",
-                        quote_available=False,
-                        availability_note=closed_note,
-                    )
                 try:
                     quote = await asyncio.wait_for(
                         self._client.market_quote(spec),
@@ -1210,9 +1206,10 @@ class TradingService:
                         currency=spec.currency,
                         data_mode="unavailable",
                         quote_available=False,
-                        availability_note=(
+                        availability_note=self._merge_availability_notes(
                             "Timed out waiting for market data from IB Gateway; "
-                            "session may be disconnected or not entitled"
+                            "session may be disconnected or not entitled",
+                            closed_note,
                         ),
                     )
                 except ValueError as exc:
@@ -1230,7 +1227,7 @@ class TradingService:
                         currency=spec.currency,
                         data_mode="unavailable",
                         quote_available=False,
-                        availability_note=str(exc),
+                        availability_note=self._merge_availability_notes(str(exc), closed_note),
                     )
 
                 self._logger.info(
@@ -1251,7 +1248,7 @@ class TradingService:
                     currency=spec.currency,
                     data_mode=str(quote["data_mode"]),
                     quote_available=True,
-                    availability_note=None,
+                    availability_note=closed_note if quote["data_mode"] != "live" else None,
                     bid=self._normalize_optional_float(quote["ticker"].bid),
                     ask=self._normalize_optional_float(quote["ticker"].ask),
                     last=self._normalize_optional_float(quote["ticker"].last),
@@ -1259,6 +1256,15 @@ class TradingService:
                 )
 
         return cast(MarketQuoteResponse, await self._cached_read(cache_key, 3.0, factory))
+
+    @staticmethod
+    def _merge_availability_notes(primary: str | None, secondary: str | None) -> str | None:
+        notes = [note for note in (primary, secondary) if note]
+        if not notes:
+            return None
+        if len(notes) == 1:
+            return notes[0]
+        return " | ".join(notes)
 
     async def get_market_snapshot(
         self,
@@ -1545,7 +1551,7 @@ class TradingService:
                 largest_position_symbol = position.contract.symbol
             items.append(
                 PortfolioRiskItem(
-                    instrument_type="stock",
+                    instrument_type=self._instrument_type_from_contract(position.contract),
                     symbol=position.contract.symbol,
                     currency=position.contract.currency,
                     position=float(position.position),
@@ -2369,10 +2375,11 @@ class TradingService:
             submissions.append(
                 await self.close_symbol_position(
                     ClosePositionRequest(
+                        instrument_type=position.instrument_type,
                         symbol=position.symbol,
-                        exchange="SMART",
+                        exchange=position.exchange or "SMART",
                         currency=position.currency,
-                        primary_exchange=position.exchange if position.exchange != "SMART" else None,
+                        primary_exchange=None,
                         time_in_force="DAY",
                         client_request_id=f"flatten-{position.symbol}-{uuid4()}",
                     )
@@ -2556,6 +2563,7 @@ class TradingService:
         except ValueError as exc:
             raise TradingValidationError(str(exc)) from exc
         response = OrderSubmissionResponse(
+            instrument_type=self._instrument_type_from_contract(trade.contract),
             order_id=str(trade.order.orderId),
             status=str(trade.orderStatus.status),
             symbol=trade.contract.symbol,
@@ -3076,7 +3084,7 @@ class TradingService:
     @staticmethod
     def _open_order_response(trade: Trade) -> OpenOrderResponse:
         return OpenOrderResponse(
-            instrument_type="stock",
+            instrument_type=TradingService._instrument_type_from_contract(trade.contract),
             order_id=str(trade.order.orderId),
             perm_id=str(trade.order.permId),
             client_id=trade.order.clientId,
@@ -3091,6 +3099,19 @@ class TradingService:
             time_in_force=getattr(trade.order, "tif", None),
             status=trade.orderStatus.status,
         )
+
+    @staticmethod
+    def _instrument_type_from_contract(contract) -> InstrumentType:
+        sec_type = str(getattr(contract, "secType", "")).upper()
+        if sec_type in {"CASH", "FOREX"}:
+            return InstrumentType.FOREX
+        return InstrumentType.STOCK
+
+    @staticmethod
+    def _deserialize_instrument_type(value: object) -> InstrumentType:
+        if value is None:
+            return InstrumentType.STOCK
+        return InstrumentType(str(value).strip().lower())
 
     @staticmethod
     def _normalize_broker_side(side: str | None) -> str | None:

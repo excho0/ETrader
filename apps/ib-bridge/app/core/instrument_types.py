@@ -3,6 +3,7 @@ from enum import StrEnum
 
 class InstrumentType(StrEnum):
     STOCK = "stock"
+    FOREX = "forex"
 
 
 SUPPORTED_INSTRUMENT_TYPES: tuple[str, ...] = tuple(item.value for item in InstrumentType)
