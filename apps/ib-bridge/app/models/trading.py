@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.core.instrument_types import InstrumentType, ensure_supported_instrument_type
 
@@ -8,6 +8,22 @@ class InstrumentTypeAwareModel(BaseModel):
     @classmethod
     def validate_instrument_type(cls, value: str | InstrumentType) -> InstrumentType:
         return ensure_supported_instrument_type(value)
+
+    @model_validator(mode="after")
+    def normalize_contract_defaults(self):
+        instrument_type = getattr(self, "instrument_type", None)
+        exchange = getattr(self, "exchange", None)
+        primary_exchange = getattr(self, "primary_exchange", None)
+        currency = getattr(self, "currency", None)
+
+        if instrument_type == InstrumentType.FOREX:
+            if isinstance(exchange, str) and exchange.strip().upper() in {"", "SMART"}:
+                self.exchange = "IDEALPRO"
+            if primary_exchange == "":
+                self.primary_exchange = None
+            if isinstance(currency, str):
+                self.currency = currency.strip().upper()
+        return self
 
 
 class InstrumentContractSpec(InstrumentTypeAwareModel):
@@ -675,4 +691,3 @@ class OpenOrderResponse(InstrumentTypeAwareModel):
     stop_price: float | None = None
     time_in_force: str | None = None
     status: str
-

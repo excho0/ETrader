@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from app.core.instrument_types import InstrumentType, SUPPORTED_INSTRUMENT_TYPES, ensure_supported_instrument_type
 from app.services.products.base import ProductAdapter
+from app.services.products.forex import ForexProductAdapter
 from app.services.products.stocks import StockProductAdapter
 
 _ADAPTERS: dict[str, ProductAdapter] = {
+    "forex": ForexProductAdapter(),
     "stock": StockProductAdapter(),
 }
 
