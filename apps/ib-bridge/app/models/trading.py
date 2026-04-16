@@ -73,6 +73,43 @@ class AccountSummaryResponse(BaseModel):
     account_values: list[AccountValue]
 
 
+class AccountPnLResponse(BaseModel):
+    account: str
+    model_code: str = ""
+    daily_pnl: float | None = None
+    unrealized_pnl: float | None = None
+    realized_pnl: float | None = None
+    source: str = "ib_pnl_subscription"
+
+
+class SymbolPnLResponse(InstrumentTypeAwareModel):
+    instrument_type: InstrumentType = InstrumentType.STOCK
+    account: str
+    model_code: str = ""
+    con_id: int
+    symbol: str
+    exchange: str
+    currency: str
+    primary_exchange: str | None = None
+    daily_pnl: float | None = None
+    unrealized_pnl: float | None = None
+    realized_pnl: float | None = None
+    position: float | None = None
+    value: float | None = None
+    source: str = "ib_pnl_single_subscription"
+
+
+class PnLSubscriptionItem(BaseModel):
+    kind: str
+    account: str
+    model_code: str = ""
+    con_id: int | None = None
+
+
+class PnLSubscriptionsResponse(BaseModel):
+    subscriptions: list[PnLSubscriptionItem]
+
+
 class ConnectivityProbeResponse(BaseModel):
     host: str
     port: int

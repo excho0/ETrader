@@ -2,7 +2,7 @@ import asyncio
 import logging
 import math
 from typing import Literal, TypedDict
-from ib_async import AccountValue, Contract, ContractDetails, Fill, IB, Order, Position, Ticker, Trade
+from ib_async import AccountValue, Contract, ContractDetails, Fill, IB, Order, PnL, PnLSingle, Position, Ticker, Trade
 
 from app.core.config import Settings
 from app.core.instrument_types import InstrumentType
@@ -258,6 +258,24 @@ class IBGatewayClient:
     async def fills(self) -> list[Fill]:
         await self.ensure_connected()
         return list(self._ib.fills())
+
+    async def account_pnl(self, *, account: str, model_code: str = "") -> PnL:
+        await self.ensure_connected()
+        existing = self._ib.pnl(account, model_code)
+        pnl = existing[0] if existing else self._ib.reqPnL(account, model_code)
+        await asyncio.sleep(0.25)
+        return pnl
+
+    async def symbol_pnl_single(self, *, account: str, model_code: str, con_id: int) -> PnLSingle:
+        await self.ensure_connected()
+        existing = self._ib.pnlSingle(account, model_code, con_id)
+        pnl = existing[0] if existing else self._ib.reqPnLSingle(account, model_code, con_id)
+        await asyncio.sleep(0.25)
+        return pnl
+
+    async def pnl_subscriptions(self) -> tuple[list[PnL], list[PnLSingle]]:
+        await self.ensure_connected()
+        return list(self._ib.pnl()), list(self._ib.pnlSingle())
 
     async def qualify_stock_contract(
         self,
