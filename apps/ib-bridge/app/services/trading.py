@@ -32,6 +32,7 @@ from app.core.errors import TradingConnectionError, TradingValidationError
 from app.models.health import ReadinessResponse
 from app.models.trading import (
     AccountRiskSnapshotResponse,
+    AccountPnLResponse,
     AccountSummaryResponse,
     AccountValue,
     ApprovalDecisionRequest,
@@ -69,10 +70,13 @@ from app.models.trading import (
     PolicyProfileResponse,
     PortfolioRiskItem,
     PortfolioRiskSnapshotResponse,
+    PnLSubscriptionItem,
+    PnLSubscriptionsResponse,
     PositionExitOcaRequest,
     PositionSnapshotResponse,
     PositionActionPlanResponse,
     PositionResponse,
+    SymbolPnLResponse,
     QualifiedContractResponse,
     QualifiedStockContractResponse,
     ReducePositionRequest,
@@ -193,6 +197,15 @@ class _NullIBGatewayClient:
 
     async def managed_accounts(self) -> list[str]:
         return []
+
+    async def account_pnl(self, *, account: str, model_code: str = ""):
+        raise TradingConnectionError("IB client is not available in test mode")
+
+    async def symbol_pnl_single(self, *, account: str, model_code: str, con_id: int):
+        raise TradingConnectionError("IB client is not available in test mode")
+
+    async def pnl_subscriptions(self):
+        return [], []
 
 
 class TradingService:
@@ -438,6 +451,83 @@ class TradingService:
                 )
 
         return cast(AccountSummaryResponse, await self._cached_read("account_summary", 2.0, factory))
+
+    async def get_account_pnl(self, *, account: str | None = None, model_code: str = "") -> AccountPnLResponse:
+        async with self._request_lock:
+            resolved_account = account
+            if not resolved_account:
+                summary = await self._client.account_summary()
+                resolved_account = self._preferred_account(summary)
+            if not resolved_account:
+                raise TradingValidationError("Unable to determine IB account for P&L subscription")
+            pnl = await self._client.account_pnl(account=resolved_account, model_code=model_code)
+            return AccountPnLResponse(
+                account=str(getattr(pnl, "account", None) or resolved_account),
+                model_code=str(getattr(pnl, "modelCode", None) or model_code),
+                daily_pnl=self._normalize_optional_float(getattr(pnl, "dailyPnL", None)),
+                unrealized_pnl=self._normalize_optional_float(getattr(pnl, "unrealizedPnL", None)),
+                realized_pnl=self._normalize_optional_float(getattr(pnl, "realizedPnL", None)),
+            )
+
+    async def get_symbol_pnl(
+        self,
+        spec: InstrumentContractSpec,
+        *,
+        account: str | None = None,
+        model_code: str = "",
+    ) -> SymbolPnLResponse:
+        async with self._request_lock:
+            resolved_account = account
+            if not resolved_account:
+                summary = await self._client.account_summary()
+                resolved_account = self._preferred_account(summary)
+            if not resolved_account:
+                raise TradingValidationError("Unable to determine IB account for symbol P&L subscription")
+            contract = await self._client.qualify_contract(spec)
+            pnl = await self._client.symbol_pnl_single(
+                account=resolved_account,
+                model_code=model_code,
+                con_id=int(contract.conId),
+            )
+            return SymbolPnLResponse(
+                instrument_type=spec.instrument_type,
+                account=str(getattr(pnl, "account", None) or resolved_account),
+                model_code=str(getattr(pnl, "modelCode", None) or model_code),
+                con_id=int(getattr(pnl, "conId", None) or contract.conId),
+                symbol=contract.symbol,
+                exchange=contract.exchange,
+                currency=contract.currency,
+                primary_exchange=getattr(contract, "primaryExchange", None),
+                daily_pnl=self._normalize_optional_float(getattr(pnl, "dailyPnL", None)),
+                unrealized_pnl=self._normalize_optional_float(getattr(pnl, "unrealizedPnL", None)),
+                realized_pnl=self._normalize_optional_float(getattr(pnl, "realizedPnL", None)),
+                position=self._normalize_optional_float(getattr(pnl, "position", None)),
+                value=self._normalize_optional_float(getattr(pnl, "value", None)),
+            )
+
+    async def get_pnl_subscriptions(self) -> PnLSubscriptionsResponse:
+        async with self._request_lock:
+            account_pnls, symbol_pnls = await self._client.pnl_subscriptions()
+            subscriptions: list[PnLSubscriptionItem] = []
+            subscriptions.extend(
+                PnLSubscriptionItem(
+                    kind="account",
+                    account=str(getattr(pnl, "account", "")),
+                    model_code=str(getattr(pnl, "modelCode", "") or ""),
+                    con_id=None,
+                )
+                for pnl in account_pnls
+            )
+            subscriptions.extend(
+                PnLSubscriptionItem(
+                    kind="symbol",
+                    account=str(getattr(pnl, "account", "")),
+                    model_code=str(getattr(pnl, "modelCode", "") or ""),
+                    con_id=int(getattr(pnl, "conId", 0) or 0),
+                )
+                for pnl in symbol_pnls
+            )
+            return PnLSubscriptionsResponse(subscriptions=subscriptions)
 
     async def get_supported_instrument_types(self) -> SupportedInstrumentTypesResponse:
         return SupportedInstrumentTypesResponse(

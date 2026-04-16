@@ -26,6 +26,7 @@ from app.models.health import ReadinessResponse
 from app.models.trading import (
     AccountSummaryResponse,
     AccountRiskSnapshotResponse,
+    AccountPnLResponse,
     ApprovalDecisionRequest,
     ApprovalMandateRequest,
     ApprovalMandateResponse,
@@ -58,10 +59,12 @@ from app.models.trading import (
     OrderSubmissionResponse,
     PolicyProfileResponse,
     PortfolioRiskSnapshotResponse,
+    PnLSubscriptionsResponse,
     PositionExitOcaRequest,
     PositionActionPlanResponse,
     PositionSnapshotResponse,
     PositionResponse,
+    SymbolPnLResponse,
     QualifiedContractResponse,
     QualifiedStockContractResponse,
     ReducePositionRequest,
@@ -249,6 +252,74 @@ async def account_summary() -> AccountSummaryResponse:
     require_mcp_scopes(READ_SCOPE)
     async with current_trading_service() as service:
         return await service.get_account_summary()
+
+
+@mcp.tool(
+    name="trading_account_pnl",
+    title="Account P&L",
+    description=(
+        "Return the current live Interactive Brokers account-level P&L from an IB P&L "
+        "subscription. Includes daily, unrealized, and realized P&L. If account is not "
+        "provided, the bridge uses the first managed account visible in account summary."
+    ),
+    annotations=READ_ONLY,
+    structured_output=True,
+    meta={"category": "portfolio", "risk_tier": "safe", "side_effects": "opens_or_reuses_pnl_subscription"},
+)
+async def account_pnl(account: str | None = None, model_code: str = "") -> AccountPnLResponse:
+    require_mcp_scopes(READ_SCOPE)
+    async with current_trading_service() as service:
+        return await service.get_account_pnl(account=account, model_code=model_code)
+
+
+@mcp.tool(
+    name="trading_symbol_pnl",
+    title="Symbol P&L",
+    description=(
+        "Return the current live Interactive Brokers P&L for one qualified instrument. "
+        "The tool resolves the contract, opens or reuses an IB single-position P&L "
+        "subscription, and returns daily, unrealized, realized, position, and value fields."
+    ),
+    annotations=READ_ONLY,
+    structured_output=True,
+    meta={"category": "portfolio", "risk_tier": "safe", "side_effects": "opens_or_reuses_pnl_subscription"},
+)
+async def symbol_pnl(
+    symbol: str,
+    account: str | None = None,
+    model_code: str = "",
+    instrument_type: InstrumentType = InstrumentType.STOCK,
+    exchange: str = "SMART",
+    currency: str = "USD",
+    primary_exchange: str | None = None,
+) -> SymbolPnLResponse:
+    require_mcp_scopes(READ_SCOPE)
+    async with current_trading_service() as service:
+        return await service.get_symbol_pnl(
+            InstrumentContractSpec(
+                instrument_type=instrument_type,
+                symbol=symbol,
+                exchange=exchange,
+                currency=currency,
+                primary_exchange=primary_exchange,
+            ),
+            account=account,
+            model_code=model_code,
+        )
+
+
+@mcp.tool(
+    name="trading_pnl_subscriptions",
+    title="P&L Subscriptions",
+    description="Return active IB P&L subscriptions currently held by the bridge for diagnostics.",
+    annotations=READ_ONLY,
+    structured_output=True,
+    meta={"category": "diagnostics", "risk_tier": "safe", "side_effects": "none"},
+)
+async def pnl_subscriptions() -> PnLSubscriptionsResponse:
+    require_mcp_scopes(READ_SCOPE)
+    async with current_trading_service() as service:
+        return await service.get_pnl_subscriptions()
 
 
 @mcp.tool(
