@@ -914,6 +914,33 @@ class TradingService:
             if cast(str | None, row.latest_status) in active_statuses
         }
         unknown_broker_order_ids = sorted(order_id for order_id in broker_open_ids if order_id not in local_active_ids)
+        if unknown_broker_order_ids:
+            trades_by_order_id = {str(trade.order.orderId): trade for trade in trade_rows}
+            for order_id in unknown_broker_order_ids:
+                trade = trades_by_order_id.get(order_id)
+                if trade is None:
+                    continue
+                open_order = self._open_order_response(trade)
+                self._record_order_lifecycle(
+                    order_id=open_order.order_id,
+                    source_event_type="broker_reconcile_open_order",
+                    symbol=open_order.symbol,
+                    action=open_order.action,
+                    order_type=open_order.order_type,
+                    quantity=open_order.total_quantity,
+                    limit_price=open_order.limit_price,
+                    stop_price=open_order.stop_price,
+                    time_in_force=open_order.time_in_force,
+                    latest_status=open_order.status,
+                    payload=open_order.model_dump(),
+                )
+            latest_lifecycle_rows = self._latest_order_lifecycle_rows()
+            local_active_ids = {
+                cast(str, row.order_id)
+                for row in latest_lifecycle_rows
+                if cast(str | None, row.latest_status) in active_statuses
+            }
+            unknown_broker_order_ids = sorted(order_id for order_id in broker_open_ids if order_id not in local_active_ids)
         stale_local_active_order_ids = sorted(order_id for order_id in local_active_ids if order_id not in broker_open_ids)
         if stale_local_active_order_ids:
             latest_by_order_id = {
@@ -1718,11 +1745,14 @@ class TradingService:
         blockers: list[str] = []
         checks: list[str] = []
 
-        snapshot = await self.get_market_snapshot(
-            symbol=request.symbol,
-            exchange=request.exchange,
-            currency=request.currency,
-            primary_exchange=request.primary_exchange,
+        snapshot = await self.get_instrument_snapshot(
+            InstrumentContractSpec(
+                instrument_type=request.instrument_type,
+                symbol=request.symbol,
+                exchange=request.exchange,
+                currency=request.currency,
+                primary_exchange=request.primary_exchange,
+            )
         )
         exposure = await self.get_symbol_exposure(
             instrument_type=request.instrument_type,
@@ -2607,6 +2637,7 @@ class TradingService:
                 parent = trades[0]
                 order_id = f"{parent.order.orderId}:{len(trades)}"
                 status = str(parent.orderStatus.status)
+                bracket_trades = trades
             else:
                 trade = await self._client.place_order(
                     instrument_type=request.instrument_type,
@@ -2623,6 +2654,7 @@ class TradingService:
                 )
                 order_id = str(trade.order.orderId)
                 status = str(trade.orderStatus.status)
+                bracket_trades = None
 
         self._audit_logger.info(
             "order_submitted symbol=%s action=%s quantity=%s order_type=%s order_id=%s",
@@ -2642,10 +2674,17 @@ class TradingService:
             order_type=request.order_type,
             limit_price=request.limit_price or request.entry_limit_price,
             stop_price=request.stop_price,
+            take_profit_price=request.take_profit_price,
             time_in_force=request.time_in_force,
             client_request_id=request.client_request_id,
             idempotent_replay=False,
         )
+        if bracket_trades is not None:
+            self._record_bracket_trade_lifecycle(
+                trades=bracket_trades,
+                source_event_type="bracket_order_child_submitted",
+                client_request_id=request.client_request_id,
+            )
         return response
 
     def _policy_profile(self) -> PolicyProfile:
@@ -2975,6 +3014,31 @@ class TradingService:
             client_request_id=response.client_request_id,
             payload=_model_payload(response),
         )
+
+    def _record_bracket_trade_lifecycle(
+        self,
+        *,
+        trades: list[Trade],
+        source_event_type: str,
+        client_request_id: str | None,
+    ) -> None:
+        for index, trade in enumerate(trades):
+            role = ("parent", "take_profit", "stop_loss")[index] if index < 3 else f"leg_{index}"
+            open_order = self._open_order_response(trade)
+            self._record_order_lifecycle(
+                order_id=open_order.order_id,
+                source_event_type=source_event_type,
+                symbol=open_order.symbol,
+                action=open_order.action,
+                order_type=open_order.order_type,
+                quantity=open_order.total_quantity,
+                limit_price=open_order.limit_price,
+                stop_price=open_order.stop_price,
+                time_in_force=open_order.time_in_force,
+                latest_status=open_order.status,
+                client_request_id=client_request_id,
+                payload={**open_order.model_dump(), "bracket_role": role},
+            )
 
     @staticmethod
     def _record_order_lifecycle(
