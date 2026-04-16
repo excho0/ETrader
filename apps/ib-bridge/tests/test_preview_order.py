@@ -18,6 +18,30 @@ from app.services.trading import TradingService
 
 
 class StubTradingService(TradingService):
+    async def get_instrument_snapshot(
+        self,
+        spec,
+    ) -> MarketSnapshotResponse:
+        return MarketSnapshotResponse(
+            instrument_type=spec.instrument_type,
+            symbol=spec.symbol,
+            exchange=spec.exchange,
+            currency=spec.currency,
+            primary_exchange=spec.primary_exchange,
+            data_mode="live",
+            bid=100.0,
+            ask=100.1,
+            last=100.05,
+            close=99.0,
+            mid_price=100.05,
+            spread=0.1,
+            spread_bps=9.995002498750624,
+            day_change=1.05,
+            day_change_percent=1.0606060606,
+            has_two_sided_market=True,
+            quote_quality="good",
+        )
+
     async def get_market_snapshot(
         self,
         *,
