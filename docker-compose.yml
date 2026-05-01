@@ -56,8 +56,8 @@ services:
   ib-bridge:
     profiles: ["mcp"]
     build:
-      context: .
-      dockerfile: ./apps/ib-bridge/Dockerfile
+      context: ./apps/ib-bridge
+      dockerfile: Dockerfile
     container_name: etrader-ib-bridge
     restart: unless-stopped
     ports:
