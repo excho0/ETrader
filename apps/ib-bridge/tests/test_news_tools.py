@@ -70,6 +70,51 @@ async def test_get_historical_news_uses_available_provider_codes_when_omitted() 
 
 
 @pytest.mark.asyncio
+async def test_historical_news_normalizes_requested_provider_codes() -> None:
+    service = TradingService(Settings(env="test"))
+    service._read_cache.clear()
+
+    async def qualify_contract(_request):
+        return SimpleNamespace(conId=12345)
+
+    async def historical_news(**kwargs):
+        assert kwargs["provider_codes"] == ["DJ-N", "DJNL"]
+        return []
+
+    service._client = SimpleNamespace(
+        qualify_contract=qualify_contract,
+        historical_news=historical_news,
+    )
+
+    response = await service.get_historical_news(
+        HistoricalNewsRequest(symbol="AAPL", provider_codes=[" dj-n ", "DJNL", "dj-n"])
+    )
+
+    assert response.provider_codes == ["DJ-N", "DJNL"]
+    assert response.headline_count == 0
+
+
+@pytest.mark.asyncio
+async def test_historical_news_fails_when_no_providers_are_available() -> None:
+    service = TradingService(Settings(env="test"))
+    service._read_cache.clear()
+
+    async def qualify_contract(_request):
+        return SimpleNamespace(conId=12345)
+
+    async def news_providers():
+        return []
+
+    service._client = SimpleNamespace(
+        qualify_contract=qualify_contract,
+        news_providers=news_providers,
+    )
+
+    with pytest.raises(ValueError, match="No news providers"):
+        await service.get_historical_news(HistoricalNewsRequest(symbol="AAPL"))
+
+
+@pytest.mark.asyncio
 async def test_get_news_article_returns_article_payload() -> None:
     service = TradingService(Settings(env="test"))
     service._read_cache.clear()
@@ -77,7 +122,7 @@ async def test_get_news_article_returns_article_payload() -> None:
     async def news_article(*, provider_code: str, article_id: str):
         assert provider_code == "BZ"
         assert article_id == "BZ$abc"
-        return SimpleNamespace(articleType=0, articleText="Body text")
+        return SimpleNamespace(articleType=0, articleText="<p>Body &amp; text</p><br><div>Next line</div>")
 
     service._client = SimpleNamespace(news_article=news_article)
 
@@ -86,4 +131,5 @@ async def test_get_news_article_returns_article_payload() -> None:
     assert response.provider_code == "BZ"
     assert response.article_id == "BZ$abc"
     assert response.article_type == 0
-    assert response.article_text == "Body text"
+    assert response.article_text == "<p>Body &amp; text</p><br><div>Next line</div>"
+    assert response.article_text_plain == "Body & text\nNext line"

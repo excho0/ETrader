@@ -213,6 +213,25 @@ class HistoricalNewsRequest(InstrumentTypeAwareModel):
     end_date_time: str = ""
     total_results: int = Field(default=20, ge=1, le=300)
 
+    @field_validator("provider_codes", mode="before")
+    @classmethod
+    def normalize_provider_codes(cls, value: object) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            raw_items = value.split(",")
+        elif isinstance(value, (list, tuple, set)):
+            raw_items = list(value)
+        else:
+            raw_items = [value]
+
+        normalized: list[str] = []
+        for item in raw_items:
+            token = str(item).strip().upper()
+            if token and token not in normalized:
+                normalized.append(token)
+        return normalized
+
 
 class HistoricalNewsHeadlineResponse(BaseModel):
     time: str
@@ -227,7 +246,7 @@ class HistoricalNewsResponse(InstrumentTypeAwareModel):
     exchange: str
     currency: str
     primary_exchange: str | None = None
-    provider_codes: list[str] = []
+    provider_codes: list[str] = Field(default_factory=list)
     start_date_time: str
     end_date_time: str
     total_results: int
@@ -241,6 +260,7 @@ class NewsArticleResponse(BaseModel):
     article_id: str
     article_type: int
     article_text: str
+    article_text_plain: str
     source: str = "ib"
 
 

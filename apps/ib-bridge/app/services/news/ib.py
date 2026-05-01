@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from bs4 import BeautifulSoup
+
 from app.models.trading import (
     HistoricalNewsHeadlineResponse,
     HistoricalNewsRequest,
@@ -18,15 +20,18 @@ class IBNewsServiceAdapter(NewsServiceAdapter):
 
     async def list_providers(self, client) -> NewsProvidersResponse:
         providers = await client.news_providers()
+        normalized_providers: list[NewsProviderResponse] = []
+        seen_codes: set[str] = set()
+        for provider in providers:
+            code = str(getattr(provider, "code", "") or getattr(provider, "providerCode", "")).strip().upper()
+            name = str(getattr(provider, "name", "") or getattr(provider, "providerName", "")).strip()
+            if not code or code in seen_codes:
+                continue
+            seen_codes.add(code)
+            normalized_providers.append(NewsProviderResponse(code=code, name=name or code))
         return NewsProvidersResponse(
             source=self.source,
-            providers=[
-                NewsProviderResponse(
-                    code=str(getattr(provider, "code", "") or getattr(provider, "providerCode", "")),
-                    name=str(getattr(provider, "name", "") or getattr(provider, "providerName", "")),
-                )
-                for provider in providers
-            ],
+            providers=normalized_providers,
         )
 
     async def get_historical_news(
@@ -38,6 +43,8 @@ class IBNewsServiceAdapter(NewsServiceAdapter):
         provider_codes = request.provider_codes or [
             provider.code for provider in (await self.list_providers(client)).providers if provider.code
         ]
+        if not provider_codes:
+            raise ValueError("No news providers are available for the connected IB session")
         headlines = await client.historical_news(
             con_id=int(contract.conId),
             provider_codes=provider_codes,
@@ -48,9 +55,9 @@ class IBNewsServiceAdapter(NewsServiceAdapter):
         normalized = [
             HistoricalNewsHeadlineResponse(
                 time=self._normalize_time(getattr(item, "time", None)),
-                provider_code=str(getattr(item, "providerCode", "")),
+                provider_code=str(getattr(item, "providerCode", "")).strip().upper(),
                 article_id=str(getattr(item, "articleId", "")),
-                headline=str(getattr(item, "headline", "")),
+                headline=self._normalize_text(str(getattr(item, "headline", ""))),
             )
             for item in headlines
         ]
@@ -77,11 +84,13 @@ class IBNewsServiceAdapter(NewsServiceAdapter):
         article_id: str,
     ) -> NewsArticleResponse:
         article = await client.news_article(provider_code=provider_code, article_id=article_id)
+        article_text = str(getattr(article, "articleText", ""))
         return NewsArticleResponse(
-            provider_code=provider_code,
+            provider_code=provider_code.strip().upper(),
             article_id=article_id,
             article_type=int(getattr(article, "articleType", 0)),
-            article_text=str(getattr(article, "articleText", "")),
+            article_text=article_text,
+            article_text_plain=self._html_to_text(article_text),
             source=self.source,
         )
 
@@ -93,3 +102,16 @@ class IBNewsServiceAdapter(NewsServiceAdapter):
         if raw is None:
             return ""
         return str(raw)
+
+    @classmethod
+    def _html_to_text(cls, raw: str) -> str:
+        if not raw:
+            return ""
+        soup = BeautifulSoup(raw, "html.parser")
+        return cls._normalize_text(soup.get_text(separator="\n"))
+
+    @staticmethod
+    def _normalize_text(raw: str) -> str:
+        lines = [line.strip() for line in raw.replace("\r", "\n").split("\n")]
+        compact = "\n".join(line for line in lines if line)
+        return compact.strip()
