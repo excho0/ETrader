@@ -41,12 +41,16 @@ from app.models.trading import (
     ExecutionQualityResponse,
     ExecutionGuardrailsResponse,
     HistoricalBarsResponse,
+    HistoricalNewsRequest,
+    HistoricalNewsResponse,
     InstrumentContractSpec,
     LevelMapResponse,
     MarketSnapshotResponse,
     MarketSessionStatusResponse,
     MarketQuoteResponse,
     MultiTimeframeBarsResponse,
+    NewsArticleResponse,
+    NewsProvidersResponse,
     OpenOrderResponse,
     OpenPositionRequest,
     OrderAdvisorResponse,
@@ -398,6 +402,95 @@ async def supported_instrument_types() -> SupportedInstrumentTypesResponse:
     require_mcp_scopes(READ_SCOPE)
     async with current_trading_service() as service:
         return await service.get_supported_instrument_types()
+
+
+@mcp.tool(
+    name="trading_news_providers",
+    title="News Providers",
+    description=(
+        "Return the news providers currently available through the configured news backend. "
+        "For the IB backend this reflects the connected account's API news entitlements."
+    ),
+    annotations=READ_ONLY,
+    structured_output=True,
+    meta={"category": "news", "risk_tier": "safe", "side_effects": "none"},
+)
+async def news_providers(source: str = "ib") -> NewsProvidersResponse:
+    require_mcp_scopes(READ_SCOPE)
+    async with current_trading_service() as service:
+        return await service.get_news_providers(source=source)
+
+
+@mcp.tool(
+    name="trading_historical_news",
+    title="Historical News",
+    description=(
+        "Fetch historical news headlines for a qualified instrument using the configured news "
+        "backend. For IB this uses the contract conId plus entitled provider codes."
+    ),
+    annotations=READ_ONLY,
+    structured_output=True,
+    meta={"category": "news", "risk_tier": "safe", "side_effects": "none"},
+)
+async def historical_news(
+    symbol: str,
+    instrument_type: InstrumentType = InstrumentType.STOCK,
+    exchange: str = "SMART",
+    currency: str = "USD",
+    primary_exchange: str | None = None,
+    provider_codes: list[str] | None = None,
+    start_date_time: str = "",
+    end_date_time: str = "",
+    total_results: int = 20,
+    source: str = "ib",
+) -> HistoricalNewsResponse:
+    require_mcp_scopes(READ_SCOPE)
+    async with current_trading_service() as service:
+        return await _with_market_data_timeout(
+            service.get_historical_news(
+                HistoricalNewsRequest(
+                    instrument_type=instrument_type,
+                    symbol=symbol,
+                    exchange=exchange,
+                    currency=currency,
+                    primary_exchange=primary_exchange,
+                    provider_codes=provider_codes or [],
+                    start_date_time=start_date_time,
+                    end_date_time=end_date_time,
+                    total_results=total_results,
+                ),
+                source=source,
+            ),
+            seconds=settings.ib_request_timeout_seconds + 1.0,
+        )
+
+
+@mcp.tool(
+    name="trading_news_article",
+    title="News Article",
+    description=(
+        "Fetch the body of one news article from the configured backend using a provider code "
+        "and article identifier."
+    ),
+    annotations=READ_ONLY,
+    structured_output=True,
+    meta={"category": "news", "risk_tier": "safe", "side_effects": "none"},
+)
+async def news_article(
+    provider_code: str,
+    article_id: str,
+    source: str = "ib",
+) -> NewsArticleResponse:
+    require_mcp_scopes(READ_SCOPE)
+    async with current_trading_service() as service:
+        return await _with_market_data_timeout(
+            service.get_news_article(
+                provider_code=provider_code,
+                article_id=article_id,
+                source=source,
+            ),
+            seconds=settings.ib_request_timeout_seconds + 1.0,
+        )
 
 
 @mcp.tool(

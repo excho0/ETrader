@@ -192,6 +192,58 @@ class HistoricalBarsResponse(InstrumentTypeAwareModel):
     bars: list[HistoricalBarResponse]
 
 
+class NewsProviderResponse(BaseModel):
+    code: str
+    name: str
+
+
+class NewsProvidersResponse(BaseModel):
+    source: str = "ib"
+    providers: list[NewsProviderResponse]
+
+
+class HistoricalNewsRequest(InstrumentTypeAwareModel):
+    instrument_type: InstrumentType = Field(default=InstrumentType.STOCK)
+    symbol: str
+    exchange: str = "SMART"
+    currency: str = "USD"
+    primary_exchange: str | None = None
+    provider_codes: list[str] = Field(default_factory=list)
+    start_date_time: str = ""
+    end_date_time: str = ""
+    total_results: int = Field(default=20, ge=1, le=300)
+
+
+class HistoricalNewsHeadlineResponse(BaseModel):
+    time: str
+    provider_code: str
+    article_id: str
+    headline: str
+
+
+class HistoricalNewsResponse(InstrumentTypeAwareModel):
+    instrument_type: InstrumentType = InstrumentType.STOCK
+    symbol: str
+    exchange: str
+    currency: str
+    primary_exchange: str | None = None
+    provider_codes: list[str] = []
+    start_date_time: str
+    end_date_time: str
+    total_results: int
+    headline_count: int
+    headlines: list[HistoricalNewsHeadlineResponse]
+    source: str = "ib"
+
+
+class NewsArticleResponse(BaseModel):
+    provider_code: str
+    article_id: str
+    article_type: int
+    article_text: str
+    source: str = "ib"
+
+
 class MultiTimeframeBarsResponse(InstrumentTypeAwareModel):
     instrument_type: InstrumentType = InstrumentType.STOCK
     symbol: str

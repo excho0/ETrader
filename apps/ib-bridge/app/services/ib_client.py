@@ -277,6 +277,34 @@ class IBGatewayClient:
         await self.ensure_connected()
         return list(self._ib.pnl()), list(self._ib.pnlSingle())
 
+    async def news_providers(self) -> list[object]:
+        await self.ensure_connected()
+        return list(await self._ib.reqNewsProvidersAsync())
+
+    async def historical_news(
+        self,
+        *,
+        con_id: int,
+        provider_codes: list[str],
+        start_date_time: str,
+        end_date_time: str,
+        total_results: int,
+    ) -> list[object]:
+        await self.ensure_connected()
+        payload = await self._ib.reqHistoricalNewsAsync(
+            con_id,
+            "+".join(code for code in provider_codes if code),
+            start_date_time,
+            end_date_time,
+            total_results,
+            [],
+        )
+        return list(payload or [])
+
+    async def news_article(self, *, provider_code: str, article_id: str) -> object:
+        await self.ensure_connected()
+        return await self._ib.reqNewsArticleAsync(provider_code, article_id, [])
+
     async def qualify_stock_contract(
         self,
         *,

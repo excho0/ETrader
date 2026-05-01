@@ -51,12 +51,16 @@ from app.models.trading import (
     ExecutionQualityResponse,
     HistoricalBarResponse,
     HistoricalBarsResponse,
+    HistoricalNewsRequest,
+    HistoricalNewsResponse,
     InstrumentContractSpec,
     LevelMapResponse,
     MarketQuoteResponse,
     MarketSnapshotResponse,
     MarketSessionStatusResponse,
     MultiTimeframeBarsResponse,
+    NewsArticleResponse,
+    NewsProvidersResponse,
     OpenOrderResponse,
     OpenPositionRequest,
     OrderAdvisorResponse,
@@ -86,6 +90,7 @@ from app.models.trading import (
     SymbolExposureResponse,
     TradeCandidateEvaluationResponse,
 )
+from app.services.news.registry import get_news_adapter
 from app.services.products.registry import list_supported_instrument_types
 if TYPE_CHECKING:
     from ib_async import AccountValue as BrokerAccountValue
@@ -206,6 +211,23 @@ class _NullIBGatewayClient:
 
     async def pnl_subscriptions(self):
         return [], []
+
+    async def news_providers(self):
+        raise TradingConnectionError("IB client is not available in test mode")
+
+    async def historical_news(
+        self,
+        *,
+        con_id: int,
+        provider_codes: list[str],
+        start_date_time: str,
+        end_date_time: str,
+        total_results: int,
+    ):
+        raise TradingConnectionError("IB client is not available in test mode")
+
+    async def news_article(self, *, provider_code: str, article_id: str):
+        raise TradingConnectionError("IB client is not available in test mode")
 
 
 class TradingService:
@@ -542,6 +564,53 @@ class TradingService:
                 ]
             },
         )
+
+    async def get_news_providers(self, *, source: str = "ib") -> NewsProvidersResponse:
+        async def factory() -> NewsProvidersResponse:
+            async with self._request_lock:
+                adapter = get_news_adapter(source)
+                return await adapter.list_providers(self._client)
+
+        return cast(NewsProvidersResponse, await self._cached_read(f"news_providers:{source}", 30.0, factory))
+
+    async def get_historical_news(
+        self,
+        request: HistoricalNewsRequest,
+        *,
+        source: str = "ib",
+    ) -> HistoricalNewsResponse:
+        cache_key = (
+            f"historical_news:{source}:{request.instrument_type}:{request.symbol}:{request.exchange}:"
+            f"{request.currency}:{request.primary_exchange or '-'}:{'+'.join(request.provider_codes)}:"
+            f"{request.start_date_time}:{request.end_date_time}:{request.total_results}"
+        )
+
+        async def factory() -> HistoricalNewsResponse:
+            async with self._request_lock:
+                adapter = get_news_adapter(source)
+                return await adapter.get_historical_news(self._client, request)
+
+        return cast(HistoricalNewsResponse, await self._cached_read(cache_key, 15.0, factory))
+
+    async def get_news_article(
+        self,
+        *,
+        provider_code: str,
+        article_id: str,
+        source: str = "ib",
+    ) -> NewsArticleResponse:
+        cache_key = f"news_article:{source}:{provider_code}:{article_id}"
+
+        async def factory() -> NewsArticleResponse:
+            async with self._request_lock:
+                adapter = get_news_adapter(source)
+                return await adapter.get_article(
+                    self._client,
+                    provider_code=provider_code,
+                    article_id=article_id,
+                )
+
+        return cast(NewsArticleResponse, await self._cached_read(cache_key, 300.0, factory))
 
     async def get_policy_profile(self) -> PolicyProfileResponse:
         profile = self._policy_profile()
