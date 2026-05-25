@@ -69,6 +69,7 @@ Local workflow:
 
 ```sh
 docker compose --profile gw --profile mcp up -d --build
+docker compose --profile mcp up -d --build
 docker compose --profile gw up -d
 docker compose --profile tws up -d
 docker compose ps
@@ -88,6 +89,7 @@ pnpm run compose:down
 Profile behavior:
 
 - `compose:up` enables `gw` and `mcp`
+- `compose:up:mcp` enables only the `mcp` profile for host-workstation TWS usage
 - `compose:up:gw` enables the `gw` profile only
 - `compose:up:tws` enables the `tws` profile so full Trader Workstation starts
 - `compose:down` tears down the compose project
@@ -148,6 +150,12 @@ backend or the other through the shared network alias `ib-api`.
 Both backend services publish the same Docker network alias, and the bridge
 defaults to `IB_HOST=ib-api`. Select which backend owns that alias by starting
 either the `gw` or `tws` profile, but not both at the same time.
+
+For an MCP-only deployment that should connect to a TWS workstation running on
+the Docker host, start only the `mcp` profile and set `IB_TWS_HOST=docker.host.internal`.
+The compose service publishes explicit `host.docker.internal` and
+`docker.host.internal` host-gateway aliases so the bridge container can reach
+the host workstation without also starting the in-compose TWS container.
 
 ## Environment Files
 

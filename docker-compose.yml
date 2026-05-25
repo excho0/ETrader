@@ -67,17 +67,22 @@ services:
         required: false
     environment:
       API_HOST: 0.0.0.0
-      IB_GATEWAY_HOST: ib-gateway
-      IB_GATEWAY_PAPER_PORT: "4002"
-      IB_GATEWAY_LIVE_PORT: "4001"
-      IB_TWS_HOST: ib-tws
-      IB_TWS_PAPER_PORT: "7499"
-      IB_TWS_LIVE_PORT: "7498"
+      IB_GATEWAY_HOST: ${IB_GATEWAY_HOST:-ib-gateway}
+      IB_GATEWAY_PAPER_PORT: ${IB_GATEWAY_PAPER_PORT:-4002}
+      IB_GATEWAY_LIVE_PORT: ${IB_GATEWAY_LIVE_PORT:-4001}
+      IB_TWS_HOST: ${IB_TWS_HOST:-docker.host.internal}
+      IB_TWS_PAPER_PORT: ${IB_TWS_PAPER_PORT:-7497}
+      IB_TWS_LIVE_PORT: ${IB_TWS_LIVE_PORT:-7496}
       DATA_DIR: /data/ib-bridge
       MCP_HTTP_HOST: 0.0.0.0
       MCP_HTTP_PORT: 8040
+      MCP_HTTP_ISSUER_URL: ${MCP_HTTP_ISSUER_URL:-http://localhost:8040}
+      MCP_HTTP_RESOURCE_SERVER_URL: ${MCP_HTTP_RESOURCE_SERVER_URL:-http://localhost:8040}
     volumes:
       - ${IB_BRIDGE_DATA_DIR:-./data/ib-bridge}:/data/ib-bridge
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+      - "docker.host.internal:host-gateway"
     networks:
       etrader_net:
         ipv4_address: 172.30.0.10
