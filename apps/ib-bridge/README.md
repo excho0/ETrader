@@ -76,10 +76,10 @@ IB_PREFERRED_MODE=live
 IB_GATEWAY_HOST=127.0.0.1
 IB_GATEWAY_PAPER_PORT=4002
 IB_GATEWAY_LIVE_PORT=4001
-# When running TWS through the compose container on the host, use the published
-# host ports 7497/7496. The compose-managed bridge container overrides these to
-# the image's internal forwarded ports 7499/7498 automatically.
-IB_TWS_HOST=127.0.0.1
+# For MCP-only Docker usage against a host workstation, use docker.host.internal.
+# When the bridge talks to a compose-managed TWS container instead, compose can
+# override these with the container-local hostname and forwarded internal ports.
+IB_TWS_HOST=docker.host.internal
 IB_TWS_PAPER_PORT=7497
 IB_TWS_LIVE_PORT=7496
 IB_CLIENT_ID=11
@@ -90,6 +90,10 @@ ENV=dev
 AUTH_ENABLED=true
 AUTH_AGENT_TOKEN=change-me-agent-token
 AUTH_EXECUTE_TOKEN=change-me-execute-token
+MCP_HTTP_HOST=0.0.0.0
+MCP_HTTP_PORT=8040
+MCP_HTTP_ISSUER_URL=http://localhost:8040
+MCP_HTTP_RESOURCE_SERVER_URL=http://localhost:8040
 ```
 
 ## Live Safety
