@@ -1,5 +1,5 @@
 {
-  description = "ETrader infrastructure for AI-agent algo trading with OpenClaw and IB Gateway";
+  description = "ETrader infrastructure for AI-agent algo trading with IB Gateway";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
