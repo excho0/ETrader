@@ -55,7 +55,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(
         title=settings.app_name,
         version=settings.app_version,
-        description="Async trading bridge between OpenClaw agents and IB Gateway.",
+        description="Async trading bridge between AI agents and IB Gateway.",
         lifespan=lifespan,
     )
 

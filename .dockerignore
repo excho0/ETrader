@@ -32,10 +32,4 @@ venv
 **/.venv
 **/venv
 
-apps/openclaw/node_modules
-apps/openclaw/.turbo
-apps/openclaw/ui/node_modules
-apps/openclaw/ui/dist
-apps/openclaw/.openclaw
-
 data

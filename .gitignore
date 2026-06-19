@@ -38,8 +38,4 @@ tmp/
 logs/
 *.log
 
-apps/openclaw/.openclaw/
-apps/openclaw/.turbo/
-apps/openclaw/ui/dist/
-
 data/
