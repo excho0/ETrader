@@ -100,7 +100,7 @@ in
 
     repoPath = lib.mkOption {
       type = lib.types.str;
-      default = "/home/void/projects/etrader";
+      default = "/home/USER/projects/etrader";
       example = "/srv/etrader";
       description = "Absolute path to the ETrader repository containing compose files.";
     };
