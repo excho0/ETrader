@@ -2,6 +2,7 @@
   "name": "etrader-monorepo",
   "private": true,
   "version": "0.1.0",
+  "license": "MIT",
   "packageManager": "pnpm@10.16.1",
   "scripts": {
     "compose:up": "docker compose --profile gw --profile mcp up -d --build",

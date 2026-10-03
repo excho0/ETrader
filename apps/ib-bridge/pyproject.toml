@@ -3,6 +3,7 @@ name = "etrader-ib-bridge"
 version = "0.1.0"
 description = "Async FastAPI and MCP trading bridge for ETrader"
 readme = "README.md"
+license = { text = "MIT" }
 requires-python = ">=3.11"
 dependencies = [
   "beautifulsoup4>=4.12.0",

@@ -1,251 +1,194 @@
 # ETrader
 
-ETrader is the infrastructure repo for an AI-agent driven algorithmic trading stack built around Interactive Brokers.
+ETrader is a self-hosted Interactive Brokers (IBKR) bridge and runtime for agent-assisted trading workflows. The current repository includes a FastAPI trading API with an MCP endpoint, Docker Compose profiles for IB Gateway or Trader Workstation (TWS), and NixOS modules for running the stack.
 
-The repo now ships a compose-managed stack for the core runtime, plus NixOS modules to manage that compose project declaratively.
+> **Status:** early development. Start with an IBKR paper account, read-only access, and order submission disabled. This software can interact with brokerage accounts; review the code and risk controls before connecting it to any account.
 
-## Scope
+## What is included
 
-Current scope:
-- Nix flake exposing reusable NixOS modules
-- NixOS module for the ETrader docker compose stack
-- Optional standalone IB Gateway NixOS module for single-container use
-- Docker Compose stack for IB Gateway, TWS, and the trading API
-- Monorepo scaffolding for future trading services
-- Async trading API and MCP bridge for IB Gateway
+- `apps/ib-bridge/`: FastAPI service exposing REST endpoints and MCP tools through one application-owned IB client session.
+- `docker-compose.yml`: optional IB Gateway (`gw`), TWS (`tws`), and bridge (`mcp`) services.
+- `infra/nix/`: NixOS modules for the bridge Compose project and standalone IB Gateway.
+- Root `package.json`: convenience scripts for Compose and bridge development.
 
-Planned scope:
-- AI agent runtimes for research, execution, and monitoring
-- Strategy orchestration and market data services
-- Risk controls and trading automation infrastructure
+The `gw` and `tws` profiles represent alternative broker backends. Run one at a time. Both are joined to the bridge through the Compose network.
 
-## Monorepo Layout
+## Requirements
 
-The repository follows a straightforward top-level monorepo shape:
+For the Compose workflow:
 
-- `apps/` for runnable applications and services
-- `packages/` for shared code and internal libraries
-- root `package.json` for monorepo scripts
-- root `pnpm-workspace.yaml` for workspace layout
+- Docker Engine with the Docker Compose plugin.
+- An Interactive Brokers account configured for paper trading and API access.
 
-The IB bridge lives in `apps/ib-bridge` and is the intended boundary between AI agents and Interactive Brokers. It uses FastAPI for HTTP, Pydantic for settings/schema enforcement, the official MCP Python SDK for agent tool exposure, and `ib_async` for async IB Gateway integration.
+Node.js and pnpm `10.16.1` are needed only if you want to use the root pnpm convenience scripts. The bridge's Python environment is managed with `uv`.
 
-## Module Usage
+For the NixOS module workflow, use Nix with flakes and a NixOS host. The default dev shell also provides the project tooling through `nix develop`.
 
-Import the aggregate module from a parent flake:
+For running the bridge directly on the host, install `uv`. Node.js and pnpm `10.16.1` are needed only for the root pnpm convenience scripts.
+
+## Quick start: paper account with Gateway
+
+1. Clone the repository and prepare local environment files:
+
+   ```sh
+   git clone https://github.com/excho0/ETrader.git
+   cd ETrader
+   cp .env.example .env
+   cp ib-gateway.env.example ib-gateway.env
+   cp apps/ib-bridge/.env.example apps/ib-bridge/.env
+   ```
+
+2. Edit `ib-gateway.env` with your IBKR paper-account credentials. Keep the file private; runtime `.env` files are ignored by Git. Keep `TRADING_MODE=paper` and change the example VNC password.
+
+3. In `apps/ib-bridge/.env`, use paper mode and read-only defaults while you connect and inspect account data:
+
+   ```dotenv
+   IB_TARGET_MODE=paper
+   IB_PREFERRED_MODE=paper
+   IB_READ_ONLY=true
+   ALLOW_PAPER_ORDERS=false
+   ALLOW_LIVE_ORDERS=false
+   AUTH_ENABLED=true
+   AUTH_AGENT_TOKEN=replace-with-a-long-random-value
+   AUTH_EXECUTE_TOKEN=replace-with-a-different-long-random-value
+   ```
+
+   The example file contains the rest of the bridge settings and risk limits. The tokens above are placeholders; replace them before starting the service.
+
+4. Start Gateway and the bridge:
+
+   ```sh
+   docker compose --profile gw --profile mcp up -d --build
+   docker compose ps
+   docker compose logs -f ib-gateway ib-bridge
+   ```
+
+   Wait for Gateway to finish starting and accepting API connections. The first startup may require reviewing the Gateway UI over VNC on port `5900`.
+
+5. Check the API health endpoint and open its interactive documentation:
+
+   ```sh
+   curl -i http://localhost:8040/api/v1/health
+   ```
+
+   Open `http://localhost:8040/docs` in a browser. REST routes are under `/api/v1`; the MCP endpoint is `/mcp/` on the same service.
+
+6. Stop the stack when finished:
+
+   ```sh
+   docker compose down --remove-orphans
+   ```
+
+The Compose service publishes the bridge on port `8040`, Gateway API on `4002`, and Gateway VNC on `5900`. The current Compose file binds published ports on all host interfaces, so configure host firewall rules and do not expose broker or VNC ports to the public internet.
+
+## Run the bridge without Compose
+
+This is useful when connecting the bridge to an IB Gateway or TWS instance already running on the host:
+
+```sh
+uv --directory apps/ib-bridge sync
+cp apps/ib-bridge/.env.example apps/ib-bridge/.env
+```
+
+Edit the bridge environment file for your local broker endpoint, then run:
+
+```sh
+uv --directory apps/ib-bridge run uvicorn app.main:app --reload --host 127.0.0.1 --port 8040
+```
+
+The API listens on `http://localhost:8040`. By default the bridge connects to paper mode and is read-only. The command above binds the local API to loopback only.
+
+## Choose TWS instead of Gateway
+
+Create the TWS runtime file and configure it with paper-account credentials:
+
+```sh
+cp ib-tws.env.example ib-tws.env
+docker compose --profile tws --profile mcp up -d --build
+```
+
+Stop the current profile before switching between Gateway and TWS. The bridge uses the Compose network hostnames and internal API ports when it runs as a container.
+
+### Connect the bridge to TWS on the host
+
+To run only the bridge in Docker and connect it to a TWS workstation running on the host, set these values in the root `.env` file:
+
+```dotenv
+IB_TWS_HOST=docker.host.internal
+IB_TWS_PAPER_PORT=7497
+IB_TWS_LIVE_PORT=7496
+MCP_HTTP_ISSUER_URL=http://localhost:8040
+MCP_HTTP_RESOURCE_SERVER_URL=http://localhost:8040
+```
+
+Then start only the bridge profile:
+
+```sh
+docker compose --profile mcp up -d --build
+```
+
+The Compose setup adds a host-gateway alias for `docker.host.internal`. Configure TWS to accept API connections from the Docker host and keep the bridge in paper and read-only mode while validating the connection.
+
+## Environment files and persistent data
+
+Runtime files are created from the checked-in examples and are excluded from Git:
+
+- `.env`: Compose path and project overrides.
+- `ib-gateway.env`: Gateway login and UI settings.
+- `ib-tws.env`: TWS login and desktop settings.
+- `apps/ib-bridge/.env`: bridge mode, authentication, broker connection, and risk settings.
+
+Compose stores broker settings and bridge state under `data/` by default. The root `.env.example` demonstrates how to move these paths. Back up persistent state before removing it; `docker compose down` leaves it in place.
+
+## API and MCP
+
+The bridge serves both interfaces from one application process:
+
+- REST: `http://localhost:8040/api/v1`
+- Health: `http://localhost:8040/api/v1/health`
+- OpenAPI UI: `http://localhost:8040/docs`
+- MCP over HTTP: `http://localhost:8040/mcp/`
+
+Authentication uses separate scoped tokens. `AUTH_AGENT_TOKEN` is for read, diagnostics, and preview operations; `AUTH_EXECUTE_TOKEN` also grants execution authority. Keep both secret. The local MCP auth bypass is intended only for loopback clients; review its settings before exposing the service beyond the host.
+
+Order submission is disabled by default. Paper order submission requires deliberate configuration changes, and live orders have additional mode, permission, token, preview, and approval checks. Keep live trading disabled while evaluating the project. Risk limits are safeguards, not a guarantee against loss.
+
+## NixOS module
+
+The repository exports `nixosModules.etrader` for the Compose service and `nixosModules.ib-gateway` for the standalone Gateway container. A host flake can add this repository as an input and import the aggregate module:
 
 ```nix
 {
-  imports = [
-    inputs.etrader.nixosModules.etrader
-  ];
+  imports = [ inputs.etrader.nixosModules.etrader ];
 
   virtualisation.docker.enable = true;
 
   services.etrader.compose = {
     enable = true;
-    environmentFiles = [ <compose-env-file> ];
+    environmentFiles = [ "/etc/etrader/compose.env" ];
     profiles = [ "gw" "mcp" ];
   };
 }
 ```
 
-The compose module wraps `docker compose up -d` / `down` in a systemd-managed unit. Use exactly one backend profile, `gw` or `tws`, alongside `mcp` when you want the bridge and MCP endpoint.
+Provide the referenced environment file on the host and configure service-specific runtime files as described above. The `gw` and `tws` backends should not be enabled together.
 
-## Compose Stack
-
-The root [docker-compose.yml](/home/USER/projects/etrader/docker-compose.yml) is now the preferred runtime entrypoint.
-
-Included services:
-- `ib-gateway` under the optional `gw` compose profile
-- `ib-tws` under the optional `tws` compose profile
-- `ib-bridge`
-
-Persistent runtime state is stored under the project-local `data/` tree by default:
-- `data/ib-gateway/tws_settings`
-- `data/ib-tws`
-
-Local workflow:
-
-```sh
-docker compose --profile gw --profile mcp up -d --build
-docker compose --profile mcp up -d --build
-docker compose --profile gw up -d
-docker compose --profile tws up -d
-docker compose ps
-docker compose logs -f
-docker compose down --remove-orphans
-```
-
-Or through the root scripts:
-
-```sh
-pnpm run compose:up
-pnpm run compose:ps
-pnpm run compose:logs
-pnpm run compose:down
-```
-
-Profile behavior:
-
-- `compose:up` enables `gw` and `mcp`
-- `compose:up:mcp` enables only the `mcp` profile for host-workstation TWS usage
-- `compose:up:gw` enables the `gw` profile only
-- `compose:up:tws` enables the `tws` profile so full Trader Workstation starts
-- `compose:down` tears down the compose project
-
-The `gw` and `tws` profiles are intended to be mutually exclusive.
-
-Compose override variables can live in a local root `.env`. Start from [`.env.example`](/home/USER/projects/etrader/.env.example).
-
-The trading bridge now runs as one app:
-- REST API on `http://localhost:8040/api/v1`
-- MCP over HTTP on `http://localhost:8040/mcp`
-
-Normal trading operations should go through that single app-owned IB client session. Avoid placing routine orders from separate ad hoc IB scripts, because they fragment order visibility and lifecycle management.
-
-For agent-driven execution, use a mandate-first approval pattern when possible:
-
-- preview and evaluate the intended trade shape first
-- if approval is required for multiple related orders, create one reusable approval mandate
-- approve that mandate once
-- let the agent continue using the normal submit tools
-
-This reduces repeated approval churn without weakening the app-owned guardrail boundary. Mandates are still bounded by mode, symbols, actions, notional, expiry, and use count.
-
-## IB Gateway
-
-The compose stack runs IB Gateway using:
-
-- image: `ghcr.io/gnzsnz/ib-gateway:latest`
-- API port: `4002`
-- VNC port: `5900`
-- `TWS_SETTINGS_PATH=/home/ibgateway/tws_settings`
-- `TWS_ACCEPT_INCOMING=accept`
-- `CLEANUP_LOGS=true`
-
-The dedicated TWS settings directory is mounted from the repo-local
-`data/ib-gateway/tws_settings` path so Gateway UI changes and persisted settings survive
-container recreation without masking the image's built-in bootstrap files.
-
-The legacy `services.etrader.ibGateway` module is still exported for cases where you want a single standalone container through `oci-containers`, but the compose stack is now the preferred path for this repo.
-
-## IB TWS
-
-The compose stack can also run full Trader Workstation through the optional `tws`
-profile using:
-
-- image: `ghcr.io/gnzsnz/tws-rdesktop:latest`
-- API ports: `7497` paper and `7496` live
-- RDP port: `3370`
-- config mount: `data/ib-tws`
-
-Use [ib-tws.env.example](/home/USER/projects/etrader/ib-tws.env.example) as the
-template for the local runtime file.
-
-TWS and IB Gateway are alternative API endpoints. They do not chain together.
-You do not run TWS "through" the existing Gateway. The bridge connects to one
-backend or the other through the shared network alias `ib-api`.
-
-Both backend services publish the same Docker network alias, and the bridge
-defaults to `IB_HOST=ib-api`. Select which backend owns that alias by starting
-either the `gw` or `tws` profile, but not both at the same time.
-
-For an MCP-only deployment that should connect to a TWS workstation running on
-the Docker host, start only the `mcp` profile and set `IB_TWS_HOST=docker.host.internal`.
-The compose service publishes explicit `host.docker.internal` and
-`docker.host.internal` host-gateway aliases so the bridge container can reach
-the host workstation without also starting the in-compose TWS container.
-
-## Environment Files
-
-Environment files should remain service-specific and should not be committed.
-
-This repo ignores `*.env` files via [`.gitignore`](/home/USER/projects/etrader/.gitignore). Keep sensitive values in a local runtime env file outside Git.
-
-Use [ib-gateway.env.example](/home/USER/projects/etrader/ib-gateway.env.example) as the template for the local runtime file.
-Use [ib-tws.env.example](/home/USER/projects/etrader/ib-tws.env.example) for the optional TWS runtime file.
-Use [apps/ib-bridge/.env.example](/home/USER/projects/etrader/apps/ib-bridge/.env.example) for the IB bridge env file.
-Use [`.env.example`](/home/USER/projects/etrader/.env.example) if you want compose-level path overrides.
-
-For persistence:
-- compose uses `data/ib-gateway/tws_settings` by default for IB Gateway settings
-- compose uses `data/ib-tws` by default for TWS settings and rdesktop state
-- the standalone Nix `services.etrader.ibGateway` module mounts the same project-local path by default
-- `services.etrader.compose.dataRoot` can move the whole persistent tree elsewhere declaratively
-
-## Trading API
-
-Install dependencies:
+## Development commands
 
 ```sh
 pnpm run ib-bridge:setup
-```
-
-Run the trading API:
-
-```sh
-pnpm run ib-bridge:dev
-```
-
-The merged app also serves MCP:
-
-```sh
-curl -i http://localhost:8040/mcp/
-```
-
-Useful lifecycle commands:
-
-```sh
-pnpm run ib-bridge:build
-pnpm run ib-bridge:start
 pnpm run ib-bridge:test
 pnpm run ib-bridge:lint
 pnpm run ib-bridge:format
+pnpm run ib-bridge:build
 ```
 
-Key capabilities exposed by the first version:
+The Compose scripts are `compose:up`, `compose:up:mcp`, `compose:up:gw`, `compose:up:tws`, `compose:ps`, `compose:logs`, and `compose:down`. `compose:up` starts the Gateway and bridge profiles; `compose:up:mcp` starts only the bridge.
 
-- compact health probe
-- explicit IB Gateway connect and disconnect
-- account summary reads
-- position reads
-- stock quote lookups
-- guarded order previews
-- reusable approval mandates for agent execution windows
-- versioned routes under `/api/v1`
-- MCP transport mounted under `/mcp`
-- one shared broker client session for REST and MCP
+## Contributing
 
-The service is intentionally conservative. Real order submission is disabled by default and must be explicitly enabled through configuration.
+Issues and pull requests are welcome. Include the operating system, Docker/Compose or Nix versions, broker backend (paper mode), and relevant redacted logs. Never include account credentials, API tokens, account numbers, or unredacted trading data.
 
-For MCP agents, the practical approval model is:
+## License
 
-- use preview and guardrail tools first
-- use `trading_create_approval_mandate` plus `trading_approve_mandate` for short bounded execution windows
-- use a narrow one-use mandate for one-off or unusual submissions
-
-## Dev Shell
-
-This repo exposes a default Nix dev shell with the core tooling for the monorepo:
-
-```sh
-nix develop
-```
-
-It includes:
-
-- `node`
-- `pnpm`
-- `python`
-- `uv`
-- `docker`
-- `podman`
-- `nc`
-
-## Development Notes
-
-- The repo is designed to be consumed as a local flake input from the main NixOS system flake.
-- `update-rebuild` in the shell config updates the `etrader` flake input together with the rest of the system.
-- Compose is now the preferred runtime for the repo because the stack spans multiple services.
-- Additional trading services can be added to the compose project and then managed through `services.etrader.compose`.
+ETrader's original project code is released under the [MIT License](LICENSE). Third-party images, libraries, and bundled components retain their own licenses; check their notices before redistributing them.
