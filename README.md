@@ -1,4 +1,11 @@
-# ETrader
+<div align="center">
+  <img src="assets/etrader-mark.png" alt="ETrader logo" width="88" height="88" />
+  <h1>ETrader</h1>
+  <p><strong>A self-hosted Interactive Brokers bridge for agent-assisted algorithmic trading workflows.</strong></p>
+  <p>Connect trading agents to IBKR through a controlled REST API and Model Context Protocol server.</p>
+</div>
+
+---
 
 ETrader is a self-hosted Interactive Brokers (IBKR) bridge and runtime for agent-assisted trading workflows. The current repository includes a FastAPI trading API with an MCP endpoint, Docker Compose profiles for IB Gateway or Trader Workstation (TWS), and NixOS modules for running the stack.
 
